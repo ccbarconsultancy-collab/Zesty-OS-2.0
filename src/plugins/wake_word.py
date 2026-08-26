@@ -143,37 +143,15 @@ class WakeWordPlugin(Plugin):
             return False
 
     async def _on_detected(self, wake_word, full_text):
-        """
-        唤醒词检测回调 — 直接强制 start_listening，绕过 UI/按钮守卫。
-        """
+        """Sherpa 命中 → 强制会话激活（绕过 PTT / UI 守卫）."""
         phrase = (wake_word or full_text or "Hey Jesty").strip()
-        logger.info(f"WAKE_WORD_HIT: {phrase!r} — forcing start_listening (bypass UI guards)")
+        logger.info(f"WAKE_WORD_HIT: {phrase!r} → activate_on_wake_word (bypass PTT)")
         self._pause_detection()
         try:
-            if self._ctx.is_speaking():
-                await self._cmd.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
-                if self._audio_plugin and self._audio_plugin.codec:
-                    await self._audio_plugin.codec.clear_audio_queue()
-                await asyncio.sleep(0.1)
-
-            from src.constants.constants import ListeningMode
-
-            mode = (
-                ListeningMode.REALTIME
-                if self._ctx.get_config().get_config("AEC_OPTIONS.ENABLED", True)
-                else ListeningMode.AUTO_STOP
-            )
-
-            if not await self._cmd.connect_protocol():
-                logger.error("Wake-word: connect_protocol failed — cannot start listening")
+            ok = await self._cmd.activate_on_wake_word(phrase)
+            if not ok:
+                logger.warning("Wake-word activation failed — resuming KWS")
                 self._resume_detection()
-                return
-
-            logger.info(f"START_LISTENING_CALLED (wake word, mode={mode})")
-            await self._cmd.start_listening(mode)
-            self._cmd.set_keep_listening(False)
-            await self._cmd.send_wake_word_detected(phrase)
-            logger.info(f"Wake-word session active (mode={mode}), streaming mic to server")
         except Exception as e:
             logger.error(f"处理唤醒词检测失败: {e}", exc_info=True)
             self._resume_detection()

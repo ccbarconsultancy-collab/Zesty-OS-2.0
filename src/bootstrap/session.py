@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Optional
 
-from src.constants.constants import DeviceState, ListeningMode
+from src.constants.constants import AbortReason, DeviceState, ListeningMode
 from src.core.event_bus import Events
 from src.logging import get_logger
 from src.utils.config_manager import get_config
@@ -283,6 +283,42 @@ class ConversationSession:
         self.state.set_keep_listening(mode != ListeningMode.MANUAL)
         await self.protocol.send_start_listening(mode)
         await self.state.set_device_state(DeviceState.LISTENING)
+
+    async def activate_on_wake_word(self, phrase: str) -> bool:
+        """Wake-word activation: force LISTENING + AUTO_STOP, bypassing PTT/UI guards."""
+        phrase = (phrase or "Hey Jesty").strip()
+        logger.info(
+            f"activate_on_wake_word: bypass PTT, phrase={phrase!r}, mode=AUTO_STOP"
+        )
+
+        try:
+            if self.state.is_speaking():
+                await self.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
+                await asyncio.sleep(0.1)
+
+            # Open capture + UI immediately (do not wait for server round-trip)
+            self.state.prepare_wake_activation()
+            await self.state.set_device_state(DeviceState.LISTENING)
+            await self.plugins.notify_device_state_changed(DeviceState.LISTENING)
+
+            if not await self.connect_protocol():
+                logger.error("activate_on_wake_word: connect_protocol failed")
+                await self.state.set_device_state(DeviceState.IDLE)
+                await self.plugins.notify_device_state_changed(DeviceState.IDLE)
+                return False
+
+            await self.protocol.send_start_listening(ListeningMode.AUTO_STOP)
+            await self.protocol.send_wake_word_detected(phrase)
+            logger.info("activate_on_wake_word: LISTENING active, server notified")
+            return True
+        except Exception as e:
+            logger.error(f"activate_on_wake_word failed: {e}", exc_info=True)
+            try:
+                await self.state.set_device_state(DeviceState.IDLE)
+                await self.plugins.notify_device_state_changed(DeviceState.IDLE)
+            except Exception:
+                pass
+            return False
 
     async def stop_listening(self) -> None:
         self.state.set_keep_listening(False)

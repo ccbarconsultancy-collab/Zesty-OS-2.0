@@ -168,6 +168,13 @@ class StateManager:
         """
         self._aborted = value
 
+    def prepare_wake_activation(self) -> None:
+        """Wake-word path: AUTO_STOP session, bypass PTT/manual guards (sync prelude)."""
+        self._listening_mode = ListeningMode.AUTO_STOP
+        self._keep_listening = False
+        self._aborted = False
+        logger.info("状态机: prepare_wake_activation → AUTO_STOP, keep_listening=False")
+
     # -------------------------
     # 复合状态查询
     # -------------------------

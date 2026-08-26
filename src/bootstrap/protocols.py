@@ -124,6 +124,12 @@ class PluginCommands(Protocol):
         """
         ...
 
+    async def activate_on_wake_word(self, phrase: str) -> bool:
+        """
+        唤醒词触发：强制 AUTO_STOP + LISTENING，绕过 PTT/手动守卫.
+        """
+        ...
+
     def spawn(self, coro: Awaitable[Any], name: str) -> Any:
         """
         创建异步任务.

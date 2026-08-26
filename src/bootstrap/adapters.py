@@ -83,6 +83,9 @@ class PluginCommandsAdapter:
     async def connect_protocol(self) -> bool:
         return await self._container.session.connect_protocol()
 
+    async def activate_on_wake_word(self, phrase: str) -> bool:
+        return await self._container.session.activate_on_wake_word(phrase)
+
     def spawn(self, coro: Awaitable[Any], name: str) -> Any:
         return self._container.tasks.spawn(coro, name)
 

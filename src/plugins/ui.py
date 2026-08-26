@@ -72,9 +72,13 @@ class UIPlugin(Plugin):
         self._presenter.show_protocol_message(message)
 
     async def on_device_state_changed(self, state) -> None:
-        if self.is_first:
+        # Never suppress LISTENING/SPEAKING — wake-word must reach the HTML bridge immediately.
+        if self.is_first and state == DeviceState.IDLE:
             self.is_first = False
             return
+        if self.is_first:
+            self.is_first = False
+
         if not self.viewport:
             return
         if self._session:

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from src.constants.constants import AudioConfig, DeviceState, ListeningMode
+from src.constants.constants import AudioConfig, DeviceState
 
 
 @pytest.mark.asyncio
@@ -20,20 +20,14 @@ async def test_wake_word_on_detected_sends_detect_and_starts_listening():
     plugin._ctx.get_config.return_value.get_config.return_value = False
 
     plugin._cmd = MagicMock()
-    plugin._cmd.start_listening = AsyncMock()
-    plugin._cmd.set_keep_listening = MagicMock()
-    plugin._cmd.send_wake_word_detected = AsyncMock()
-    plugin._cmd.connect_protocol = AsyncMock(return_value=True)
+    plugin._cmd.activate_on_wake_word = AsyncMock(return_value=True)
 
     plugin.detector = MagicMock()
     plugin.get_dep = MagicMock(return_value=None)
 
     await plugin._on_detected("HEYJESTY", "HEYJESTY")
 
-    plugin._cmd.connect_protocol.assert_awaited_once()
-    plugin._cmd.start_listening.assert_awaited_once_with(ListeningMode.AUTO_STOP)
-    plugin._cmd.set_keep_listening.assert_called_once_with(False)
-    plugin._cmd.send_wake_word_detected.assert_awaited_once_with("HEYJESTY")
+    plugin._cmd.activate_on_wake_word.assert_awaited_once_with("HEYJESTY")
 
 
 @pytest.mark.asyncio
@@ -47,9 +41,7 @@ async def test_wake_word_resumes_on_start_listening_failure():
     plugin._ctx.get_config.return_value.get_config.return_value = False
 
     plugin._cmd = MagicMock()
-    plugin._cmd.start_listening = AsyncMock(side_effect=RuntimeError("boom"))
-    plugin._cmd.set_keep_listening = MagicMock()
-    plugin._cmd.send_wake_word_detected = AsyncMock()
+    plugin._cmd.activate_on_wake_word = AsyncMock(return_value=False)
 
     plugin.detector = MagicMock()
     plugin.detector.resume = MagicMock()
@@ -59,6 +51,41 @@ async def test_wake_word_resumes_on_start_listening_failure():
     await plugin._on_detected("HEYJESTY", "HEYJESTY")
 
     plugin._resume_detection.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_activate_on_wake_word_sets_listening_before_protocol():
+    from src.bootstrap.session import ConversationSession
+    from src.constants.constants import ListeningMode
+
+    state = MagicMock()
+    state.is_speaking.return_value = False
+    state.prepare_wake_activation = MagicMock()
+    state.set_device_state = AsyncMock()
+
+    protocol = MagicMock()
+    protocol.send_start_listening = AsyncMock()
+    protocol.send_wake_word_detected = AsyncMock()
+
+    plugins = MagicMock()
+    plugins.notify_device_state_changed = AsyncMock()
+
+    session = ConversationSession(
+        state=state,
+        protocol=protocol,
+        plugins=plugins,
+        event_bus=MagicMock(),
+    )
+    session.connect_protocol = AsyncMock(return_value=True)
+
+    ok = await session.activate_on_wake_word("Hey Jesty")
+
+    assert ok is True
+    state.prepare_wake_activation.assert_called_once()
+    state.set_device_state.assert_any_await(DeviceState.LISTENING)
+    plugins.notify_device_state_changed.assert_any_await(DeviceState.LISTENING)
+    protocol.send_start_listening.assert_awaited_once_with(ListeningMode.AUTO_STOP)
+    protocol.send_wake_word_detected.assert_awaited_once_with("Hey Jesty")
 
 
 @pytest.mark.asyncio
