@@ -74,6 +74,7 @@ class ConfigManager:
                 "MQTT_INFO": None,
                 "ACTIVATION_VERSION": "v2",  # 可选值: v1, v2
                 "AUTHORIZATION_URL": "https://xiaozhi.me/",
+                "PERSISTENT_WEBSOCKET": True,
             },
         },
         "WAKE_WORD_OPTIONS": {

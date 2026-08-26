@@ -64,6 +64,7 @@ class ProtocolTransport:
             from src.protocols.websocket_protocol import WebsocketProtocol
 
             self._protocol = WebsocketProtocol()
+            self._protocol.enable_auto_reconnect(enabled=True, max_attempts=12)
 
         self._setup_callbacks()
         self._ensure_audio_consumer()

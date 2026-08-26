@@ -6,11 +6,13 @@ listen / abort / TTS 回环等应用级会话逻辑。
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Optional
 
 from src.constants.constants import DeviceState, ListeningMode
 from src.core.event_bus import Events
 from src.logging import get_logger
+from src.utils.config_manager import get_config
 
 if TYPE_CHECKING:
     from src.core.event_bus import EventBus
@@ -38,6 +40,89 @@ class ConversationSession:
         self._aborted = False
         # MCP 工具配置重连等：通道打开后保持 IDLE，不自动进入聆听
         self._keep_idle_on_channel_open = False
+        self._transport_reconnect_lock = asyncio.Lock()
+        self._reconnect_task: Optional[asyncio.Task] = None
+
+    def _persistent_transport_enabled(self) -> bool:
+        """WebSocket 持久传输：启动即连接，IDLE 时保持在线供唤醒词使用."""
+        try:
+            cfg = get_config()
+            if not cfg.get_config("SYSTEM_OPTIONS.NETWORK.PERSISTENT_WEBSOCKET", True):
+                return False
+        except Exception:
+            return True
+
+        proto = self.protocol.protocol
+        if proto is None:
+            return False
+
+        from src.protocols.websocket_protocol import WebsocketProtocol
+
+        return isinstance(proto, WebsocketProtocol)
+
+    async def connect_persistent_transport(self) -> bool:
+        """建立持久 WebSocket 传输，设备保持 IDLE/ARMED（不进入 LISTENING）."""
+        if not self._persistent_transport_enabled():
+            logger.debug("持久 WebSocket 传输未启用，跳过")
+            return False
+
+        if self.protocol.is_audio_channel_opened():
+            logger.info("持久 WebSocket 传输已在线")
+            return True
+
+        self._keep_idle_on_channel_open = True
+        try:
+            ok = await self.connect_protocol()
+            if ok:
+                logger.info(
+                    "持久 WebSocket 传输已连接 (IDLE/ARMED) — 唤醒词可随时触发"
+                )
+            else:
+                logger.warning("持久 WebSocket 传输连接失败")
+            return ok
+        except Exception as e:
+            logger.error(f"持久 WebSocket 传输连接异常: {e}", exc_info=True)
+            return False
+        finally:
+            if not self.protocol.is_audio_channel_opened():
+                self._keep_idle_on_channel_open = False
+
+    def _schedule_persistent_reconnect(self) -> None:
+        """服务端收回会话或网络抖动后，在 IDLE 下后台重连传输."""
+        if not self._persistent_transport_enabled():
+            return
+        if self._reconnect_task and not self._reconnect_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._reconnect_task = loop.create_task(
+            self._reconnect_persistent_transport(),
+            name="session:persistent_transport_reconnect",
+        )
+
+    async def _reconnect_persistent_transport(self) -> None:
+        async with self._transport_reconnect_lock:
+            if not self._persistent_transport_enabled():
+                return
+            if self.protocol.is_audio_channel_opened():
+                return
+            if self.state.is_listening() or self.state.is_speaking():
+                return
+
+            for attempt in range(1, 7):
+                delay = min(attempt * 2, 15)
+                await asyncio.sleep(delay)
+                if self.protocol.is_audio_channel_opened():
+                    return
+                if self.state.is_listening() or self.state.is_speaking():
+                    return
+                logger.info(f"持久传输重连 {attempt}/6 …")
+                if await self.connect_persistent_transport():
+                    return
+
+            logger.warning("持久传输重连次数已用尽，等待下次触发")
 
     # -------------------------
     # 事件订阅
@@ -63,13 +148,14 @@ class ConversationSession:
             self._keep_idle_on_channel_open = False
             self.state.set_keep_listening(False)
             await self.state.set_device_state(DeviceState.IDLE)
-            logger.info("协议通道已打开（配置重连）：保持空闲，不进入聆听")
+            logger.info("协议通道已打开（持久传输）：保持 IDLE/ARMED，唤醒词待命")
             return
         await self.state.set_device_state(DeviceState.LISTENING)
 
     async def _on_audio_channel_closed(self, _=None) -> None:
         logger.info("协议通道已关闭，设备进入 ARMED (IDLE)，唤醒词检测恢复")
         await self.state.set_device_state(DeviceState.IDLE)
+        self._schedule_persistent_reconnect()
 
     async def _on_network_error(self, error_message: str = None) -> None:
         """网络错误：停止持续监听并复位设备状态到 IDLE."""
@@ -79,6 +165,8 @@ class ConversationSession:
                 await self.state.set_device_state(DeviceState.IDLE)
         except Exception as e:
             logger.error(f"网络错误后复位设备状态失败: {e}", exc_info=True)
+        if self.state.is_idle():
+            self._schedule_persistent_reconnect()
 
     async def _on_device_state_changed(self, data: dict) -> None:
         new_state = data.get("new_state")

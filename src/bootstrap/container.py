@@ -119,6 +119,9 @@ class ServiceContainer:
                 except Exception as e:
                     logger.debug(f"降级提示事件失败: {e}", exc_info=True)
 
+            # 持久 WebSocket：启动即在线，IDLE 时保持传输供唤醒词使用
+            await self.session.connect_persistent_transport()
+
             await self.plugins.notify_device_state_changed(self.state.device_state)
 
             await self.tasks.wait_shutdown()
