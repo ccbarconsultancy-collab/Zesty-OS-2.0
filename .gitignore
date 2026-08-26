@@ -1,0 +1,47 @@
+/logs
+/config
+
+.venv
+**/__pycache__/
+
+.idea/
+venv/
+
+# 音乐缓存
+cache/
+
+
+# CI 注入的 FFmpeg 二进制（不进仓库）
+libs/ffmpeg/
+
+# 打包相关
+/build
+/dist
+
+# MACOS
+.DS_Store
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+xiaozhi.spec
+
+/installer
+
+.unifypy
+xiaozhi-desktop/
+chakra-qml/
+py-xiaozhi/
+
+# Claude Code 本地私人配置(权限选择等)
+.claude/settings.local.json
+
+# 本地草稿/笔记
+/impl.md
+
+# 项目分析报告（本地查看）
+reports/

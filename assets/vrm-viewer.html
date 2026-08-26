@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zesty // VRM Avatar</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #050508;
+      font-family: "JetBrains Mono", "SF Mono", monospace;
+      color: rgba(0, 240, 255, 0.7);
+    }
+    #canvas { display: block; width: 100%; height: 100%; }
+    #hud {
+      position: fixed;
+      top: 18px;
+      left: 18px;
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      pointer-events: none;
+      user-select: none;
+      z-index: 10;
+    }
+    #hud .title { color: #00f0ff; font-size: 11px; margin-bottom: 4px; }
+    #hud .sub { color: rgba(0, 240, 255, 0.45); }
+    #loader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: #050508;
+      z-index: 20;
+      transition: opacity 0.6s ease;
+    }
+    #loader.hidden { opacity: 0; pointer-events: none; }
+    .ring {
+      width: 42px; height: 42px;
+      border: 2px solid rgba(0, 240, 255, 0.15);
+      border-top-color: #00f0ff;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #error {
+      display: none;
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: 90vw;
+      padding: 12px 18px;
+      border: 1px solid rgba(255, 70, 70, 0.5);
+      background: rgba(40, 0, 0, 0.85);
+      color: #ff8888;
+      font-size: 11px;
+      border-radius: 6px;
+      z-index: 30;
+      text-align: center;
+      line-height: 1.5;
+    }
+    .vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.75) 100%);
+      z-index: 5;
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+      "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.3.3/lib/three-vrm.module.js",
+      "@pixiv/three-vrm/": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.3.3/lib/",
+      "@pixiv/types-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/types-vrm@3.3.3/lib/index.module.js",
+      "@pixiv/types-vrm/": "https://cdn.jsdelivr.net/npm/@pixiv/types-vrm@3.3.3/lib/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="hud">
+    <div class="title">ZESTY // AVATAR CORE</div>
+    <div class="sub">AvatarSample_A · VRM · IDLE</div>
+  </div>
+  <div id="loader">
+    <div class="ring"></div>
+    <div>LOADING NEURAL AVATAR...</div>
+  </div>
+  <div id="error"></div>
+  <div class="vignette"></div>
+  <canvas id="canvas"></canvas>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    const MODEL_PATH = './avatars/8590256991748008892.glb';
+
+    const canvas = document.getElementById('canvas');
+    const loaderEl = document.getElementById('loader');
+    const errorEl = document.getElementById('error');
+
+    function showError(msg) {
+      errorEl.style.display = 'block';
+      errorEl.innerHTML = msg;
+      loaderEl.classList.add('hidden');
+    }
+
+    // --- Renderer ---
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // --- Scene ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050508);
+    scene.fog = new THREE.Fog(0x050508, 4, 12);
+
+    // --- Camera ---
+    const camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.1, 50);
+    camera.position.set(0, 1.38, 2.15);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.target.set(0, 1.05, 0);
+    controls.enablePan = false;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 1.2;
+    controls.maxDistance = 4.5;
+    controls.minPolarAngle = Math.PI * 0.25;
+    controls.maxPolarAngle = Math.PI * 0.62;
+    controls.update();
+
+    // --- Lighting ---
+    const ambient = new THREE.AmbientLight(0x8ab4c4, 0.55);
+    scene.add(ambient);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
+    keyLight.position.set(1.8, 2.8, 2.2);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(1024, 1024);
+    scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0x6a8fa0, 0.35);
+    fillLight.position.set(-2.2, 1.4, 1.5);
+    scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0x00f0ff, 0.55);
+    rimLight.position.set(-1.2, 1.8, -2.5);
+    scene.add(rimLight);
+
+    const accent = new THREE.PointLight(0x00f0ff, 0.9, 6);
+    accent.position.set(0.6, 1.35, 1.2);
+    scene.add(accent);
+
+    // Ground glow
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(1.6, 64),
+      new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.04 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0.001;
+    scene.add(ground);
+
+    // --- Load VRM ---
+    let vrm = null;
+    let baseY = 0;
+    const FACE_CAMERA_Y = Math.PI;
+    const idleBones = {};
+    const clock = new THREE.Clock();
+
+    function setupNaturalPose(vrm) {
+      const boneNames = [
+        'hips', 'spine', 'chest', 'neck', 'head',
+        'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
+      ];
+
+      for (const name of boneNames) {
+        const node = vrm.humanoid.getNormalizedBoneNode(name);
+        if (!node) continue;
+        idleBones[name] = {
+          node,
+          base: { x: node.rotation.x, y: node.rotation.y, z: node.rotation.z },
+        };
+      }
+
+      // Relax VRoid default bind pose (arms down, natural stand)
+      if (idleBones.leftUpperArm) {
+        idleBones.leftUpperArm.base.z = 1.28;
+        idleBones.leftUpperArm.base.x = 0.12;
+      }
+      if (idleBones.rightUpperArm) {
+        idleBones.rightUpperArm.base.z = -1.28;
+        idleBones.rightUpperArm.base.x = 0.12;
+      }
+      if (idleBones.leftLowerArm) {
+        idleBones.leftLowerArm.base.x = -0.32;
+      }
+      if (idleBones.rightLowerArm) {
+        idleBones.rightLowerArm.base.x = -0.32;
+      }
+      if (idleBones.spine) {
+        idleBones.spine.base.x = -0.02;
+      }
+    }
+
+    function applyIdleAnimation(t) {
+      const breath = Math.sin(t * 1.55);
+      const breathSlow = Math.sin(t * 0.78 + 0.6);
+      const sway = Math.sin(t * 0.42);
+      const swaySoft = Math.sin(t * 0.42 + 1.1);
+
+      // Face camera + gentle body turn
+      vrm.scene.rotation.y = FACE_CAMERA_Y + sway * 0.05;
+      vrm.scene.position.y = baseY + breath * 0.022 + breathSlow * 0.008;
+
+      const applyBone = (name, offsets = {}) => {
+        const entry = idleBones[name];
+        if (!entry) return;
+        const { node, base } = entry;
+        node.rotation.x = base.x + (offsets.x || 0);
+        node.rotation.y = base.y + (offsets.y || 0);
+        node.rotation.z = base.z + (offsets.z || 0);
+      };
+
+      applyBone('hips', { y: sway * 0.028 });
+      applyBone('spine', { x: breath * 0.022, y: swaySoft * 0.018 });
+      applyBone('chest', { x: breath * 0.038, z: swaySoft * 0.012 });
+      applyBone('neck', { x: -breath * 0.008, y: -swaySoft * 0.01 });
+      applyBone('head', { y: -sway * 0.015, x: breath * 0.006 });
+      applyBone('leftUpperArm', { x: breath * 0.012, z: sway * 0.008 });
+      applyBone('rightUpperArm', { x: breath * 0.012, z: -sway * 0.008 });
+      applyBone('leftLowerArm', { x: breath * 0.006 });
+      applyBone('rightLowerArm', { x: breath * 0.006 });
+
+      // Occasional blink for life
+      if (vrm.expressionManager) {
+        const cycle = t % 4.8;
+        let blink = 0;
+        if (cycle > 4.55) blink = 1 - (cycle - 4.55) / 0.25;
+        const em = vrm.expressionManager;
+        const available = em.expressions.map((e) => e.expressionName);
+        for (const name of ['blink', 'Blink']) {
+          if (available.includes(name)) {
+            em.setValue(name, blink);
+            break;
+          }
+        }
+      }
+    }
+
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.register((parser) => new VRMLoaderPlugin(parser));
+
+    gltfLoader.load(
+      MODEL_PATH,
+      (gltf) => {
+        vrm = gltf.userData.vrm;
+        if (!vrm) {
+          showError('File loaded but no VRM extension found.<br>Ensure this is a valid .vrm / VRoid export.');
+          return;
+        }
+
+        VRMUtils.rotateVRM0(vrm);
+
+        // Face the camera (VRoid models load facing away by default)
+        vrm.scene.rotation.y = FACE_CAMERA_Y;
+
+        // Center on ground
+        const box = new THREE.Box3().setFromObject(vrm.scene);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        vrm.scene.position.x -= center.x;
+        vrm.scene.position.z -= center.z;
+        vrm.scene.position.y -= box.min.y;
+        baseY = vrm.scene.position.y;
+
+        setupNaturalPose(vrm);
+
+        vrm.scene.traverse((obj) => {
+          if (obj.isMesh) {
+            obj.castShadow = true;
+            obj.receiveShadow = true;
+          }
+        });
+
+        scene.add(vrm.scene);
+
+        controls.target.set(0, size.y * 0.42, 0);
+        camera.position.set(0, size.y * 0.42 + 0.15, Math.max(size.y * 0.95, 1.6));
+        controls.update();
+
+        loaderEl.classList.add('hidden');
+      },
+      (progress) => {
+        if (progress.total) {
+          const pct = Math.round((progress.loaded / progress.total) * 100);
+          loaderEl.lastElementChild.textContent = `LOADING NEURAL AVATAR... ${pct}%`;
+        }
+      },
+      (err) => {
+        console.error(err);
+        showError(
+          'Failed to load avatar model.<br><br>' +
+          '<b>Tip:</b> Browsers block local file loading. Run a local server:<br>' +
+          '<code>cd assets && python3 -m http.server 8080</code><br>' +
+          'Then open <code>http://localhost:8080/vrm-viewer.html</code>'
+        );
+      }
+    );
+
+    // --- Animate ---
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const t = clock.getElapsedTime();
+
+      if (vrm) {
+        applyIdleAnimation(t);
+        vrm.update(delta);
+
+        // Soft cyan pulse on accent light
+        accent.intensity = 0.75 + Math.sin(t * 1.8) * 0.15;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

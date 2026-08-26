@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ZESTY OS // NEURAL CORE</title>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght=100;200;300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
+
+  :root{
+    --cyan: #00F0FF;
+    --cyan-dim: #007A85;
+    --coral: #FF4500;
+    --coral-dim: #7A2200;
+    --void: #000000;
+  }
+
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body{
+    margin:0; padding:0; width:100%; height:100%;
+    background: var(--void); overflow: hidden;
+    font-family: 'JetBrains Mono', 'Space Mono', monospace; font-size: 10px; color: #d8f6f8;
+  }
+
+  ::selection{ background: var(--cyan); color:#000; }
+
+  .crt-overlay{
+    position: fixed; inset:0; pointer-events:none; z-index: 60; mix-blend-mode: overlay; opacity:.5;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.028) 0px, rgba(255,255,255,0.028) 1px, transparent 1px, transparent 3px);
+  }
+  .vignette{ position: fixed; inset:0; pointer-events:none; z-index: 55; background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.85) 100%); }
+  
+  #meshCanvas{ position: fixed; inset:0; width:100%; height:100%; z-index: 1; display:block; pointer-events: none; }
+  .hud-root{ position: fixed; inset:0; z-index: 10; perspective: 1800px; pointer-events:none; }
+  .hud-root * { pointer-events: auto; } 
+
+  .top-strip{
+    position:absolute; top:22px; left:50%; transform: translateX(-50%);
+    display:flex; align-items:center; gap:18px; font-size:9px; letter-spacing:.18em; color: rgba(0,240,255,0.55); opacity:.75; user-select:none;
+  }
+  .top-strip .divider{ width:1px; height:9px; background: rgba(0,240,255,0.25); }
+  .pulse-dot{ width:5px; height:5px; border-radius:50%; background: var(--cyan); box-shadow: 0 0 6px 1px var(--cyan); animation: dotPulse 2.4s ease-in-out infinite; }
+  @keyframes dotPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
+
+  .id-tag{ position:absolute; top:24px; left:24px; font-size:8.5px; letter-spacing:.15em; color: rgba(255,69,0,0.5); opacity:.7; user-select:none; }
+  .id-tag .main{ color: rgba(0,240,255,0.7); font-size:9.5px; display:block; margin-bottom:2px;}
+
+  .console-dock{ position:absolute; bottom: 30px; left:50%; transform: translateX(-50%); width: min(560px, 86vw); z-index: 20; }
+  .console-capsule{
+    display:flex; align-items:center; gap:10px; background: rgba(6,14,16,0.55); border: 1px solid rgba(0,240,255,0.18);
+    border-radius: 999px; padding: 9px 8px 9px 18px; backdrop-filter: blur(20px);
+  }
+  .console-status-dot{ width:6px; height:6px; border-radius:50%; flex-shrink:0; background: var(--cyan); box-shadow: 0 0 8px 1px var(--cyan); animation: dotPulse 2s ease-in-out infinite; }
+  #cmdInput{ flex:1; background:transparent; border:none; outline:none; color:#eafcff; font-family:'JetBrains Mono', monospace; font-size:11px; caret-color: var(--cyan); }
+  .send-btn{ width:32px; height:32px; border-radius:50%; flex-shrink:0; background: rgba(0,240,255,0.08); border:1px solid rgba(0,240,255,0.3); display:flex; align-items:center; justify-content:center; cursor:pointer; color: var(--cyan); }
+
+  .console-chip-row{ display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .console-chip{ font-size:8px; text-transform:uppercase; color: rgba(0,240,255,0.55); background: rgba(0,240,255,0.03); border: 1px solid rgba(0,240,255,0.18); border-radius: 3px; padding: 3.5px 8px; cursor:pointer; font-family: inherit; }
+  .console-chip-row button:hover{ color: #fff; border-color: var(--cyan); }
+
+  .subsystem-strip{ position:absolute; top:52px; left:50%; transform:translateX(-50%); display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:90vw; z-index:15; }
+  .sys-chip{ font-size:7.5px; letter-spacing:.12em; padding:3px 8px; border:1px solid rgba(0,240,255,0.15); border-radius:999px; background:rgba(0,0,0,0.35); color:rgba(216,246,248,0.45); }
+  .sys-chip.on{ color:var(--cyan); border-color:rgba(0,240,255,0.45); }
+  
+  .runtime-telemetry { position: absolute; top: 24px; right: 24px; font-size: 9px; letter-spacing: .22em; color: #00E676; border: 1px solid rgba(0,230,118,0.35); background: rgba(0,40,20,0.35); border-radius: 999px; padding: 5px 16px; pointer-events: none; }
+
+  #zustyVoiceCore {
+    width: 44px; height: 44px;
+    background: rgba(224, 255, 255, 0.06);
+    border: 1px solid rgba(224, 255, 255, 0.3);
+    box-shadow: 0 0 15px rgba(224, 255, 255, 0.15), inset 0 0 10px rgba(224, 255, 255, 0.1);
+    border-radius: 50%; display: inline-flex; flex-direction: column;
+    align-items: center; justify-content: center; position: fixed; z-index: 9999999;
+    right: 40px; bottom: 120px; cursor: grab; pointer-events: auto;
+    backdrop-filter: blur(8px);
+    transition: background 0.4s ease, box-shadow 0.4s ease, transform 0.3s ease;
+  }
+  #zustyVoiceCore:active { cursor: grabbing; }
+  #zustyVoiceCore.state-listening { background: rgba(0, 240, 255, 0.15); box-shadow: 0 0 10px rgba(0, 240, 255, 0.18); transform: scale(1.1); }
+  #zustyVoiceCore.state-speaking { background: rgba(255, 69, 0, 0.18); border-color: rgba(255, 69, 0, 0.55); box-shadow: 0 0 18px rgba(255, 69, 0, 0.35); transform: scale(1.08); }
+  #zustyVoiceCore.state-processing { background: rgba(0, 240, 255, 0.1); box-shadow: 0 0 14px rgba(0, 240, 255, 0.28); animation: orbPulse 1.2s ease-in-out infinite; }
+  #zustyVoiceCore.state-wake-ready { background: rgba(0, 230, 118, 0.08); border-color: rgba(0, 230, 118, 0.35); box-shadow: 0 0 12px rgba(0, 230, 118, 0.2); }
+  #zustyVoiceCore.state-error { background: rgba(255, 80, 80, 0.15); border-color: rgba(255, 80, 80, 0.5); box-shadow: 0 0 14px rgba(255, 80, 80, 0.35); }
+  @keyframes orbPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+  #zustyVoiceCore .orb-eyes { display: flex; justify-content: center; gap: 4px; }
+  #zustyVoiceCore .orb-eyes span { width: 4px; height: 4px; background: #e0ffff; border-radius: 50%; box-shadow: 0 0 6px #e0ffff; display: inline-block; animation: blink 3.8s infinite ease-in-out; }
+  @keyframes blink { 0%, 90%, 100% { transform: scaleY(1); opacity: 1; } 95% { transform: scaleY(0.1); opacity: 0.2; } }
+
+  #zesty-taskbar { position: fixed; bottom: 34px; left: calc(50% + 285px); display: flex; gap: 6px; z-index: 1000; }
+  .dock-item { background: rgba(6, 14, 16, 0.9); border: 1px solid var(--cyan); color: var(--cyan); padding: 4px 10px; font-size: 9px; font-family: monospace; cursor: pointer; border-radius: 4px; box-shadow: 0 0 6px rgba(0, 240, 255, 0.3); }
+
+  /* ==================================================
+     🛠️ DRAGGABLE & RESIZABLE PANELS CSS
+     ================================================== */
+  .panel {
+    position: absolute;
+    width: 400px;
+    height: 350px; /* Default height */
+    min-width: 300px;
+    min-height: 250px;
+    
+    /* 🚀 NEW: DRAG TO RESIZE FEATURE */
+    resize: both; 
+    overflow: hidden; /* Required for resize to work */
+
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(0.95) translateY(10px);
+    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), visibility 0.3s;
+    background: linear-gradient(180deg, rgba(8,14,18,0.95), rgba(5,8,10,0.88));
+    border: 1px solid rgba(0, 240, 255, 0.25);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.9);
+    border-radius: 8px;
+    padding: 16px;
+    z-index: 500;
+    backdrop-filter: blur(12px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Target the native resize handle color for a sci-fi look */
+  .panel::-webkit-resizer {
+    background-color: var(--cyan);
+    outline: 2px solid var(--void);
+  }
+
+  .panel.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: scale(1) translateY(0);
+  }
+
+  .panel.is-dragging {
+    transition: none !important; 
+    transform: scale(1) !important;
+  }
+
+  /* Default Initial Spawning Locations */
+  #panelSocial, #panelFlavour, #panelFamily { left: 40px; top: 100px; }
+  #panelSearch, #panelCraftsmen, #panelRecipe, #panelDriver, #panelHelp { right: 40px; top: 100px; }
+
+  .panel-header{ display:flex; align-items:center; justify-content:space-between; padding-bottom:10px; margin-bottom: 12px; border-bottom: 1px solid rgba(0, 240, 255, 0.2); cursor: grab; }
+  .panel-header:active { cursor: grabbing; }
+  .panel-header .title{ font-size: 10.5px; letter-spacing:.16em; font-weight:700; pointer-events: none; color: var(--cyan); text-shadow: 0 0 8px rgba(0,240,255,.6); }
+  .window-controls { display: flex; gap: 8px; font-size: 13px; color: rgba(0, 240, 255, 0.6); user-select: none; z-index: 10; }
+  .window-controls span { cursor: pointer; transition: color 0.2s; padding: 0 3px; }
+  .window-controls span:hover { color: #ffffff; text-shadow: 0 0 6px var(--cyan); }
+
+  .panel-content-vessel { flex: 1; overflow-y: auto; padding-right: 4px; pointer-events: auto; }
+  .panel-content-vessel::-webkit-scrollbar { width: 3px; }
+  .panel-content-vessel::-webkit-scrollbar-thumb { background: rgba(0,240,255,0.25); border-radius: 2px; }
+
+  .zesty-progress-vessel { width: 100%; height: 4px; background: rgba(0, 240, 255, 0.1); border-radius: 2px; overflow: hidden; border: 1px solid rgba(0, 240, 255, 0.1); }
+  .zesty-progress-fill { width: 65%; height: 100%; background: linear-gradient(90deg, var(--cyan), #00aeff); box-shadow: 0 0 6px var(--cyan); }
+
+  /* 🛠️ VONDA MAX LASER SCAN ANIMATION */
+  @keyframes scanLine { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+  .laser-scanner { position: absolute; left: 0; width: 100%; height: 2px; background: var(--cyan); box-shadow: 0 0 10px 2px var(--cyan); display: none; z-index: 10; }
+  .scanning .laser-scanner { display: block; animation: scanLine 1.5s linear infinite; }
+</style>
+</head>
+<body>
+
+<canvas id="meshCanvas"></canvas>
+<div class="vignette"></div>
+<div class="crt-overlay"></div>
+
+<div class="hud-root">
+  <div class="id-tag"><span class="main">ZESTY // OS</span>NEURAL CORE v1.0 &nbsp;·&nbsp; LOCAL RUNTIME</div>
+
+  <div class="top-strip">
+    <span class="pulse-dot"></span><span id="systemStatusLabel">WAKE READY</span><span class="divider"></span>
+    <span id="coreTempReadout">CORE 37.2&deg;</span><span class="divider"></span><span id="loadReadout">LOAD 0.14</span>
+  </div>
+
+  <div class="subsystem-strip">
+    <span class="sys-chip on" id="chipWake">WAKE READY</span><span class="sys-chip" id="chipVoice">VOICE STANDBY</span><span class="sys-chip" id="chipGesture">MANUAL MODE</span>
+  </div>
+
+  <div class="runtime-telemetry" id="runtimeTelemetry">// ENGINE OFFLINE // DISCONNECTED</div>
+
+  <!-- 👤 LEFT SIDE: SOCIAL MEDIA RADAR & VONDA MAX -->
+  <div class="panel" id="panelSocial">
+    <div class="panel-header" title="Drag me to move!">
+      <span class="title">SOCIAL MEDIA RADAR</span>
+      <div class="window-controls">
+        <span onclick="minimizeZestyPanel('panelSocial', 'SOCIAL')">-</span>
+        <span onclick="closeZestyPanel('panelSocial')">x</span>
+      </div>
+    </div>
+    <div class="panel-content-vessel">
+      <div style="display:flex; justify-content: space-between; border-bottom:1px solid rgba(0,240,255,0.2); margin-bottom:12px; padding-bottom:6px;">
+        <span style="font-size:8px; color:rgba(0,240,255,0.6); letter-spacing:1px;">DATA SOURCE: <span id="radar-source" style="color:#fff;">AWAITING QUERY...</span></span>
+        <span style="font-size:8px; color:#00E676; letter-spacing:1px;" id="radar-status">IDLE</span>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 85px; gap: 14px; align-items: center; margin-bottom: 10px;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #e0f7fa; line-height: 1.8;">
+          <div style="display:flex; justify-content:space-between;"><span style="color: rgba(216,246,248,0.45);">FOLLOWER DELTA</span><span style="font-weight:700;">+128</span></div>
+          <div style="display:flex; justify-content:space-between; margin-bottom: 6px;"><span style="color: rgba(216,246,248,0.45);">ENGAGEMENT RATE</span><span style="font-weight:700;">4.87%</span></div>
+          <div class="zesty-progress-vessel"><div class="zesty-progress-fill"></div></div>
+        </div>
+        <div id="social-photo-frame" style="position: relative; width: 85px; height: 95px; border: 1px solid rgba(0, 240, 255, 0.4); background: rgba(0, 240, 255, 0.03); border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+          <img id="socialTargetPhoto" src="" style="display: none; width: 100%; height: 100%; object-fit: cover; filter: contrast(1.25) brightness(0.95) sepia(1) hue-rotate(145deg); mix-blend-mode: screen;">
+          <div class="laser-scanner"></div> <!-- VONDA MAX LASER -->
+          <div style="position: absolute; bottom: 4px; display: flex; gap: 3px; z-index: 5;">
+            <span style="font-size: 7px; padding: 1px 3px; background: rgba(6,18,28,0.85); border: 1px solid rgba(0,240,255,0.3); color: rgba(0,240,255,0.65);">IG</span>
+          </div>
+        </div>
+      </div>
+      <hr style="border: none; border-top: 1px solid rgba(0, 240, 255, 0.15); margin: 10px 0;">
+      <div id="socialContentArea" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6; color: #e0f7fa;">
+        <span style="color: rgba(0, 240, 255, 0.45)">// ZESTY INTELLIGENCE SYSTEMS ONLINE... AWAITING CORE SYNC.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔍 RIGHT SIDE: SYSTEM SEARCH BRIEF -->
+  <div class="panel is-visible" id="panelSearch">
+    <div class="panel-header" style="border-color: rgba(0, 230, 118, 0.18);" title="Drag me to move!">
+      <span class="title" style="color: #00E676;">SYSTEM SEARCH BRIEF</span>
+      <div class="window-controls" style="color: #00E676;">
+        <span onclick="minimizeZestyPanel('panelSearch', 'SEARCH')">_</span>
+        <span style="color: #ff4646;" onclick="closeZestyPanel('panelSearch')">X</span>
+      </div>
+    </div>
+    <div class="panel-content-vessel" id="searchBriefBody" style="color: #e8f5e9; font-size:11px;">
+      <span style="color: #00E676">// OS ROUTINE TERMINALS LOADED SUCCESSFULLY.</span>
+    </div>
+  </div>
+
+  <!-- CORE DOCK PILLARS -->
+  <div class="panel" id="panelFlavour">
+    <div class="panel-header" title="Drag me to move!"><span class="title">FLAVOUR DNA MATRIX</span><span style="cursor:pointer; color:var(--cyan);" onclick="closeZestyPanel('panelFlavour')">X</span></div>
+    <div class="panel-content-vessel" id="flavourContentArea" style="color:#fff; font-size:11px;">// STANDBY FOR SENSORY ENGINE INJECTION...</div>
+  </div>
+
+  <div class="panel" id="panelFamily">
+    <div class="panel-header" style="border-color:rgba(123,47,247,0.2);" title="Drag me to move!"><span class="title" style="color:#7b2ff7;">FAMILY NETWORK NODE</span><span style="cursor:pointer; color:#7b2ff7;" onclick="closeZestyPanel('panelFamily')">X</span></div>
+    <div class="panel-content-vessel" id="familyContentArea" style="color:#fff; font-size:11px;">// STANDBY FOR CORE SYNC...</div>
+  </div>
+
+  <div class="panel" id="panelDriver">
+    <div class="panel-header" style="border-color:rgba(255,234,0,0.2);" title="Drag me to move!"><span class="title" style="color:#ffea00;">DRIVER AUTOMATION</span><span style="cursor:pointer; color:#ffea00;" onclick="closeZestyPanel('panelDriver')">X</span></div>
+    <div class="panel-content-vessel" id="driverContentArea" style="color:#fff; font-size:11px;">// AUTOMATION SYSTEMS STANDBY...</div>
+  </div>
+
+  <div class="panel" id="panelRecipe">
+    <div class="panel-header" title="Drag me to move!"><span class="title">RECIPE MATRIX</span><span style="cursor:pointer; color:var(--cyan);" onclick="closeZestyPanel('panelRecipe')">X</span></div>
+    <div class="panel-content-vessel" id="recipeContentArea" style="color:#fff; font-size:11px;">// RECIPE ENGINE STANDBY...</div>
+  </div>
+
+  <div class="panel" id="panelCraftsmen">
+    <div class="panel-header" title="Drag me to move!"><span class="title">CRAFTSMEN NODE</span><span style="cursor:pointer; color:var(--cyan);" onclick="closeZestyPanel('panelCraftsmen')">X</span></div>
+    <div class="panel-content-vessel" id="craftsmenContentArea" style="color:#fff; font-size:11px;">// CRAFTSMEN SYSTEMS STANDBY...</div>
+  </div>
+
+  <!-- 💡 THE HELP PANEL -->
+  <div class="panel" id="panelHelp">
+    <div class="panel-header" title="Drag me to move!">
+      <span class="title" style="color:var(--cyan);">SYSTEM DIRECTORY & HELP</span>
+      <div class="window-controls"><span onclick="minimizeZestyPanel('panelHelp', 'HELP')">-</span><span style="color:#ff4646;" onclick="closeZestyPanel('panelHelp')">X</span></div>
+    </div>
+    <div class="panel-content-vessel" style="color:#fff;">
+      <div style="color:var(--cyan); font-size:8.5px; margin-bottom:4px; letter-spacing:1px;">VOICE COMMANDS</div>
+      <p style="color:rgba(216,246,248,0.6); font-size:10px; margin-bottom:12px; line-height:1.5;">Tap the floating orb and say:<br>- "Open Social Radar"<br>- "Show Flavour DNA"</p>
+      
+      <div style="color:var(--cyan); font-size:8.5px; margin-bottom:4px; letter-spacing:1px;">VONDA MAX PROTOCOL</div>
+      <p style="color:rgba(216,246,248,0.6); font-size:10px; margin-bottom:12px; line-height:1.5;">Live biometric facial scanning and universal social data extraction is fully armed.</p>
+
+      <div style="color:var(--cyan); font-size:8.5px; margin-bottom:4px; letter-spacing:1px;">SYSTEM ARCHITECTURE</div>
+      <p style="color:rgba(216,246,248,0.6); font-size:10px; line-height:1.5;">Zesty Neural Engine v1.0<br>Universal AI Adapter: ONLINE<br>Fibonacci Render: STABLE<br>Drag & Resize: ACTIVE</p>
+    </div>
+  </div>
+</div>
+
+<div class="console-dock">
+  <div class="console-capsule" id="zestyConsoleCapsule">
+    <div class="console-status-dot"></div>
+    <input type="text" id="cmdInput" placeholder="AWAITING CYBERNETIC COMMAND MATRIX..." autocomplete="off">
+    <div class="send-btn" id="sendBtn"><svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" height="16" width="16"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></div>
+  </div>
+  <div class="console-chip-row">
+    <button class="console-chip" onclick="pyBridgeAbort()">⏹ ABORT</button>
+    <button class="console-chip" onclick="pyBridgeListen()">🎙 LISTEN</button>
+    <button class="console-chip" onclick="pyBridgeSettings()">⚙ SETTINGS</button>
+    <button class="console-chip" onclick="executeLocalOSRoute('help')">❓ HELP</button>
+  </div>
+</div>
+
+<div id="zesty-taskbar"></div>
+<div id="zustyVoiceCore"><div class="orb-eyes"><span></span><span></span></div></div>
+
+<script>
+  // ==========================================
+  // ORIGINAL FIBONACCI SPHERE CANVAS RENDERER
+  // ==========================================
+  const canvas = document.getElementById('meshCanvas');
+  const ctx = canvas.getContext('2d');
+  let W = window.innerWidth, H = window.innerHeight; canvas.width = W; canvas.height = H;
+  window.addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; });
+
+  const NUM_SHELLS = 4;
+  const NODES_PER_SHELL = [140, 110, 80, 46]; 
+  const SHELL_RADII_FACTORS = [0.34, 0.58, 0.82, 1.05]; 
+
+  let nodes = []; let edges = [];
+  let rotY = 0, rotX = 0.32; let targetRotX = 0.32;
+  let throbEnergy = 0; let throbTime = 0; let idlePulseTime = 0;
+  let uiPhase = 'wake_ready';
+
+  function fibonacciSpherePoints(n){
+    const pts = []; const gAngle = Math.PI * (3 - Math.sqrt(5)); 
+    for(let i=0;i<n;i++){
+      const y = 1 - (i / (n - 1)) * 2; const radiusAtY = Math.sqrt(Math.max(0,1 - y*y)); const theta = gAngle * i;
+      pts.push({ x: Math.cos(theta) * radiusAtY, y: y, z: Math.sin(theta) * radiusAtY });
+    }
+    return pts;
+  }
+
+  function buildMesh(){
+    nodes = []; edges = []; let idOffset = 0;
+    for(let s=0; s<NUM_SHELLS; s++){
+      const count = NODES_PER_SHELL[s]; const pts = fibonacciSpherePoints(count); const rFactor = SHELL_RADII_FACTORS[s];
+      pts.forEach((p, i) => {
+        nodes.push({ id: idOffset + i, shell: s, bx: p.x, by: p.y, bz: p.z, rFactor: rFactor, phase: Math.random() * Math.PI * 2, throbPhase: Math.random() * Math.PI * 2 });
+      });
+      const shellNodes = nodes.slice(idOffset, idOffset + count);
+      for(let i=0;i<shellNodes.length;i++){
+        const a = shellNodes[i]; const dists = [];
+        for(let j=0;j<shellNodes.length;j++){
+          if(i===j) continue; const b = shellNodes[j]; const dx=a.bx-b.bx, dy=a.by-b.by, dz=a.bz-b.bz; dists.push({ j, d: dx*dx+dy*dy+dz*dz });
+        }
+        dists.sort((p,q)=>p.d-q.d);
+        for(let k=0;k<Math.min(s===0?4:3, dists.length);k++){
+          const gj = shellNodes[dists[k].j].id; if(a.id < gj) edges.push({ a: a.id, b: gj });
+        }
+      }
+      idOffset += count;
+    }
+  }
+  buildMesh();
+
+  function project(node, cx, cy, baseR){
+    const cosY = Math.cos(rotY), sinY = Math.sin(rotY); const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+    let x1 = node.bx*cosY - node.bz*sinY; let z1 = node.bx*sinY + node.bz*cosY;
+    let y1 = node.by*cosX - z1*sinX; let z2 = node.by*sinX + z1*cosX;
+    const dynamicRadius = baseR * node.rFactor * (1 + Math.sin(idlePulseTime*0.9 + node.phase)*0.035 + Math.sin(throbTime*9 + node.throbPhase)*throbEnergy*0.14);
+    const scale = 480 / (480 - z2 * dynamicRadius * 0.55);
+    return { sx: cx + x1 * dynamicRadius * scale, sy: cy + y1 * dynamicRadius * scale, sz: z2, scale, shell: node.shell };
+  }
+
+  let lastT = performance.now();
+  function render(now){
+    const dt = Math.min(0.05, (now - lastT)/1000); lastT = now;
+    idlePulseTime += dt; throbTime += dt;
+    const spinRate = uiPhase === 'listening' ? 0.0014 : uiPhase === 'speaking' ? 0.0010 : uiPhase === 'processing' ? 0.0009 : 0.00062;
+    rotY += spinRate * (dt*60);
+    if (uiPhase === 'listening' || uiPhase === 'speaking' || uiPhase === 'processing') throbEnergy = Math.max(throbEnergy, uiPhase === 'listening' ? 1.4 : 1.1);
+    rotX += (targetRotX - rotX) * 0.02; targetRotX = 0.32 + Math.sin(now*0.00018) * 0.09;
+    if(throbEnergy > 0) throbEnergy *= Math.pow(0.045, dt); ctx.clearRect(0,0,W,H);
+    
+    const cx = W/2, cy = H/2; const baseR = Math.min(W,H) * 0.28; const projected = nodes.map(n => project(n, cx, cy, baseR));
+    const orb = document.getElementById('zustyVoiceCore');
+    let lineStyle = "rgba(0, 240, 255, ";
+    if (uiPhase === 'listening') lineStyle = "rgba(0, 255, 242, ";
+    else if (uiPhase === 'speaking') lineStyle = "rgba(255, 69, 0, ";
+    else if (uiPhase === 'processing') lineStyle = "rgba(0, 200, 255, ";
+    else if (uiPhase === 'wake_ready' || uiPhase === 'idle') lineStyle = "rgba(0, 230, 118, ";
+
+    edges.forEach(e => {
+      const A = projected[e.a], B = projected[e.b];
+      if(A && B){ let alpha = Math.pow(((A.sz + B.sz)/2 + 1)/2, 1.6) * 0.30; ctx.strokeStyle = lineStyle + alpha + ")"; ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy); ctx.stroke(); }
+    });
+    projected.sort((a,b)=>a.sz - b.sz).forEach(p => {
+      let alpha = Math.pow((p.sz + 1)/2, 1.3) * 0.85; ctx.fillStyle = p.shell === 0 ? `rgba(255, 69, 0, ${alpha})` : `rgba(0, 240, 255, ${alpha})`;
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, p.shell===0 ? 2.5 : 1.2, 0, Math.PI*2); ctx.fill();
+    });
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+
+  // ==========================================
+  // HUD UI LOGIC: ORB DRAGGING (visual + listen toggle via py-xiaozhi bridge)
+  // ==========================================
+  function initOrbDragging(){
+    const orb = document.getElementById('zustyVoiceCore'); if(!orb) return;
+    let isDragging = false; let moved = false;
+    let startX = 0, startY = 0, initialX = 0, initialY = 0;
+    orb.addEventListener('mousedown', (e) => {
+        isDragging = true; moved = false; orb.style.cursor = 'grabbing'; startX = e.clientX; startY = e.clientY;
+        const rect = orb.getBoundingClientRect(); initialX = rect.left; initialY = rect.top; 
+        orb.style.right = 'auto'; orb.style.bottom = 'auto'; e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        if (Math.abs(e.clientX - startX) > 4 || Math.abs(e.clientY - startY) > 4) moved = true;
+        let nextLeft = Math.max(0, Math.min(initialX + (e.clientX - startX), window.innerWidth - orb.offsetWidth));
+        let nextTop = Math.max(0, Math.min(initialY + (e.clientY - startY), window.innerHeight - orb.offsetHeight));
+        orb.style.left = nextLeft + 'px'; orb.style.top = nextTop + 'px';
+    });
+    window.addEventListener('mouseup', () => {
+        if (!isDragging) return;
+        isDragging = false; orb.style.cursor = 'grab';
+        if (!moved && window.pyBridge) window.pyBridge.toggleListening();
+    });
+  }
+
+  // ==========================================
+  // py-xiaozhi QWebChannel bridge (Step 2)
+  // ==========================================
+  window.pyBridge = null;
+  const ORB_STATE_CLASSES = ['state-listening', 'state-speaking', 'state-processing', 'state-wake-ready', 'state-error'];
+
+  function applyOrbVisualState(state) {
+    const orb = document.getElementById('zustyVoiceCore');
+    if (!orb) return;
+    ORB_STATE_CLASSES.forEach((cls) => orb.classList.remove(cls));
+    const classMap = {
+      listening: 'state-listening',
+      speaking: 'state-speaking',
+      processing: 'state-processing',
+      wake_ready: 'state-wake-ready',
+      idle: 'state-wake-ready',
+      error: 'state-error',
+      disconnected: 'state-error'
+    };
+    const cls = classMap[state];
+    if (cls) orb.classList.add(cls);
+  }
+
+  function onStatusText(text) {
+    const statusLabel = document.getElementById('systemStatusLabel');
+    if (statusLabel && text) statusLabel.innerText = text;
+  }
+
+  function onDeviceState(state) {
+    uiPhase = state || 'wake_ready';
+    const chipVoice = document.getElementById('chipVoice');
+    const chipWake = document.getElementById('chipWake');
+    applyOrbVisualState(state);
+
+    if (chipWake) {
+      const wakeOn = state === 'wake_ready' || state === 'idle';
+      chipWake.innerText = wakeOn ? 'WAKE READY' : 'WAKE ARMED';
+      chipWake.classList.toggle('on', wakeOn);
+    }
+    if (chipVoice) {
+      const voiceLabels = {
+        listening: 'VOICE LISTENING',
+        speaking: 'VOICE SPEAKING',
+        processing: 'VOICE PROCESSING',
+        error: 'VOICE ERROR',
+        disconnected: 'VOICE OFFLINE'
+      };
+      chipVoice.innerText = voiceLabels[state] || 'VOICE STANDBY';
+      chipVoice.classList.toggle('on', state === 'listening' || state === 'speaking' || state === 'processing');
+    }
+    if (state === 'speaking' || state === 'processing') throbEnergy = Math.max(throbEnergy, 1.2);
+  }
+
+  function onConnectionState(state) {
+    const tel = document.getElementById('runtimeTelemetry');
+    if (!tel) return;
+    const connected = state === 'connected';
+    tel.innerText = connected ? '// ENGINE LIVE // CONNECTED' : '// ENGINE OFFLINE // DISCONNECTED';
+    tel.style.color = connected ? '#00E676' : '#ff6b6b';
+    const dot = document.querySelector('.console-status-dot');
+    if (dot) {
+      dot.style.background = connected ? 'var(--cyan)' : '#ff6b6b';
+      dot.style.boxShadow = connected ? '0 0 8px 1px var(--cyan)' : '0 0 8px 1px #ff6b6b';
+    }
+  }
+
+  function pyBridgeAbort() {
+    if (window.pyBridge) window.pyBridge.abort();
+  }
+
+  function pyBridgeListen() {
+    if (window.pyBridge) window.pyBridge.toggleListening();
+  }
+
+  function pyBridgeSettings() {
+    if (window.pyBridge) window.pyBridge.openSettings();
+  }
+
+  function onChatText(text) {
+    if (!text) return;
+    throbEnergy = 1.6;
+    const panel = document.getElementById('panelSearch');
+    const body = document.getElementById('searchBriefBody');
+    if (panel) { panel.classList.add('is-visible'); focusZestyPanel('panelSearch'); }
+    if (body) triggerZestyTypewriter(body, text);
+  }
+
+  function onEmotion(name) {
+    if (name) throbEnergy = 1.0;
+  }
+
+  function onMusicLine(text) {
+    if (!text) return;
+    const body = document.getElementById('searchBriefBody');
+    if (body) triggerZestyTypewriter(body, '// MUSIC: ' + text);
+  }
+
+  function onError(message) {
+    const body = document.getElementById('searchBriefBody');
+    if (body) triggerZestyTypewriter(body, '// ERROR: ' + (message || 'Unknown error'));
+    const statusLabel = document.getElementById('systemStatusLabel');
+    if (statusLabel) statusLabel.innerText = 'ERROR';
+    applyOrbVisualState('error');
+    uiPhase = 'error';
+  }
+
+  function onNotice(message) {
+    if (!message) return;
+    const body = document.getElementById('searchBriefBody');
+    if (body) triggerZestyTypewriter(body, '// NOTICE: ' + message);
+  }
+
+  function onButtonLabel(label) {
+    const input = document.getElementById('cmdInput');
+    if (input && label) input.placeholder = label.toUpperCase();
+  }
+
+  function onAutoMode(enabled) {
+    const chip = document.getElementById('chipGesture');
+    if (chip) {
+      chip.innerText = enabled ? 'AUTO MODE ON' : 'MANUAL MODE';
+      chip.classList.toggle('on', !!enabled);
+    }
+  }
+
+  function sendToPyXiaozhi(commandText) {
+    if (!commandText || !commandText.trim()) return;
+    if (!window.pyBridge) {
+      onError('Bridge not ready');
+      return;
+    }
+    const statusLabel = document.getElementById('systemStatusLabel');
+    if (statusLabel) statusLabel.innerText = 'PROCESSING...';
+    window.pyBridge.sendText(commandText);
+  }
+
+  function initPyXiaozhiBridge() {
+    if (typeof QWebChannel === 'undefined' || typeof qt === 'undefined') {
+      console.warn('QWebChannel unavailable — running without py-xiaozhi bridge');
+      return;
+    }
+    new QWebChannel(qt.webChannelTransport, function(channel) {
+      window.pyBridge = channel.objects.htmlUiBridge;
+      if (!window.pyBridge) {
+        console.error('htmlUiBridge not registered on QWebChannel');
+        return;
+      }
+      window.pyBridge.chatText.connect(onChatText);
+      window.pyBridge.deviceState.connect(onDeviceState);
+      window.pyBridge.connectionState.connect(onConnectionState);
+      window.pyBridge.emotion.connect(onEmotion);
+      window.pyBridge.musicLine.connect(onMusicLine);
+      window.pyBridge.errorMessage.connect(onError);
+      window.pyBridge.systemNotice.connect(onNotice);
+      window.pyBridge.buttonLabel.connect(onButtonLabel);
+      window.pyBridge.autoMode.connect(onAutoMode);
+      window.pyBridge.statusText.connect(onStatusText);
+      onDeviceState('wake_ready');
+      onConnectionState('disconnected');
+      onStatusText('WAKE READY');
+      console.log('py-xiaozhi HTML bridge ready');
+    });
+  }
+
+  (function initPyXiaozhiConsoleInput(){
+    const cmdInput = document.getElementById('cmdInput');
+    const sendBtn = document.getElementById('sendBtn');
+    if (!cmdInput || !sendBtn) return;
+
+    const submitCommand = () => {
+      const text = cmdInput.value.trim();
+      if (!text) return;
+      sendToPyXiaozhi(text);
+      cmdInput.value = '';
+    };
+
+    sendBtn.addEventListener('click', submitCommand);
+    cmdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitCommand(); });
+  })();
+
+  // ==========================================
+  // HUD UI LOGIC: PERFECT 360 DRAGGABLE PANELS
+  // ==========================================
+  function focusZestyPanel(activeId) {
+    document.querySelectorAll('.panel').forEach(p => { p.style.zIndex = "500"; });
+    const activePanel = document.getElementById(activeId); if(activePanel) { activePanel.style.zIndex = "99999"; }
+  }
+
+  function makePanelDraggable(panelId) {
+    const panel = document.getElementById(panelId); const header = panel ? panel.querySelector('.panel-header') : null;
+    if (!panel || !header) return;
+
+    let isDragging = false; let offsetX = 0, offsetY = 0;
+
+    const startDrag = (e) => {
+        if (e.target.closest('.window-controls')) return; 
+        isDragging = true; focusZestyPanel(panelId); 
+        
+        const rect = panel.getBoundingClientRect();
+        panel.style.left = rect.left + 'px'; panel.style.top = rect.top + 'px';
+        panel.style.right = 'auto'; panel.style.bottom = 'auto';
+        panel.classList.add('is-dragging'); 
+
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        offsetX = clientX - rect.left; offsetY = clientY - rect.top;
+        e.preventDefault(); 
+    };
+
+    const onDrag = (e) => {
+        if (!isDragging) return;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        let nextLeft = Math.max(0, Math.min(clientX - offsetX, window.innerWidth - panel.offsetWidth));
+        let nextTop = Math.max(0, Math.min(clientY - offsetY, window.innerHeight - panel.offsetHeight));
+        panel.style.left = nextLeft + 'px'; panel.style.top = nextTop + 'px';
+    };
+
+    const stopDrag = () => { if(isDragging) { isDragging = false; panel.classList.remove('is-dragging'); } };
+
+    header.addEventListener('mousedown', startDrag); window.addEventListener('mousemove', onDrag); window.addEventListener('mouseup', stopDrag);
+    header.addEventListener('touchstart', startDrag, {passive: false}); window.addEventListener('touchmove', onDrag, {passive: false}); window.addEventListener('touchend', stopDrag);
+  }
+
+  if(document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => { initOrbDragging(); initPyXiaozhiBridge(); ['panelSocial', 'panelSearch', 'panelFlavour', 'panelFamily', 'panelDriver', 'panelRecipe', 'panelCraftsmen', 'panelHelp'].forEach(makePanelDraggable); }); } 
+  else { initOrbDragging(); initPyXiaozhiBridge(); ['panelSocial', 'panelSearch', 'panelFlavour', 'panelFamily', 'panelDriver', 'panelRecipe', 'panelCraftsmen', 'panelHelp'].forEach(makePanelDraggable); }
+
+  // ==========================================
+  // GENERAL UI BEHAVIORS & ANIMATIONS
+  // ==========================================
+  function triggerZestyTypewriter(element, text, speed = 12) {
+      element.innerHTML = ""; let i = 0; function type() { if (i < text.length) { element.innerHTML += text.charAt(i); i++; setTimeout(type, speed); } } type();
+  }
+
+  function minimizeZestyPanel(panelId, panelName) {
+      const panel = document.getElementById(panelId); if (!panel) return; panel.classList.remove('is-visible');
+      let taskbar = document.getElementById('zesty-taskbar');
+      if (!document.getElementById(`dock-${panelId}`)) {
+          const dockItem = document.createElement('div'); dockItem.id = `dock-${panelId}`; dockItem.className = 'dock-item'; dockItem.innerText = `📂 ${panelName}`;
+          dockItem.onclick = function() { setTimeout(() => { panel.classList.add('is-visible'); focusZestyPanel(panelId); }, 50); dockItem.remove(); }; taskbar.appendChild(dockItem);
+      }
+  }
+  
+  function closeZestyPanel(panelId) {
+      const panel = document.getElementById(panelId); if (panel) { panel.classList.remove('is-visible'); }
+      const dockItem = document.getElementById(`dock-${panelId}`); if (dockItem) dockItem.remove();
+  }
+
+  function showPanelMessage(targetPanelId, text) {
+    if (!text) return;
+    throbEnergy = 1.6;
+    const targetPanel = document.getElementById(targetPanelId);
+    if (!targetPanel) return;
+    setTimeout(() => { targetPanel.classList.add('is-visible'); focusZestyPanel(targetPanelId); }, 50);
+    const cArea = document.getElementById(
+      targetPanelId === "panelFlavour" ? 'flavourContentArea' :
+      targetPanelId === "panelFamily" ? 'familyContentArea' :
+      targetPanelId === "panelCraftsmen" ? 'craftsmenContentArea' :
+      targetPanelId === "panelRecipe" ? 'recipeContentArea' :
+      targetPanelId === "panelHelp" ? 'helpContentArea' :
+      targetPanelId === "panelDriver" ? 'driverContentArea' :
+      targetPanelId === "panelSocial" ? 'socialContentArea' : 'searchBriefBody'
+    );
+    if (cArea) triggerZestyTypewriter(cArea, text);
+  }
+
+  function executeLocalOSRoute(cmd) {
+    const mapping = { social: 'panelSocial', flavour: 'panelFlavour', family: 'panelFamily', craftsmen: 'panelCraftsmen', driver: 'panelDriver', recipe: 'panelRecipe', help: 'panelHelp' };
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('is-visible'));
+    if (mapping[cmd]) {
+      setTimeout(() => { showPanelMessage(mapping[cmd], `Opening ${cmd.toUpperCase()} matrix core cockpit metrics...`); }, 150);
+    } else {
+      setTimeout(() => { showPanelMessage('panelSearch', `Triggering execution global node layer for ${cmd}...`); }, 150);
+    }
+    if (cmd === 'help' && window.pyBridge) window.pyBridge.openSettings();
+  }
+</script>
+</body>
+</html>
