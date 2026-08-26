@@ -41,6 +41,7 @@ class AudioPlugin(Plugin):
             self.codec = AudioCodec()
             await self.codec.initialize()
             self.codec.set_encoded_callback(self._on_encoded_audio)
+            self.codec.set_input_level_callback(self._on_input_level)
 
             from src.core.event_bus import Events
 
@@ -219,6 +220,23 @@ class AudioPlugin(Plugin):
                 await codec.close()
 
             pool.register("audio.codec", _cleanup)
+
+    def _on_input_level(self, level: float) -> None:
+        """PortAudio 线程：推送麦克风电平（IDLE 时也持续，不经过状态门控）."""
+        try:
+            if self._cmd:
+                self._cmd.schedule_command_nowait(self._emit_input_level, level)
+        except Exception as e:
+            logger.debug(f"调度输入电平事件失败: {e}")
+
+    async def _emit_input_level(self, level: float) -> None:
+        from src.core.event_bus import Events
+
+        try:
+            if self._ctx and self._ctx.event_bus:
+                await self._ctx.event_bus.emit(Events.MIC_INPUT_LEVEL, float(level))
+        except Exception as e:
+            logger.debug(f"推送 MIC_INPUT_LEVEL 失败: {e}")
 
     def _on_encoded_audio(self, encoded_data: bytes) -> None:
         """

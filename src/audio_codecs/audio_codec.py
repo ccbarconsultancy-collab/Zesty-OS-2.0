@@ -76,8 +76,11 @@ class AudioCodec:
 
         # 监听器（线程安全）
         self._encoded_callback: Callable | None = None
+        self._input_level_callback: Callable[[float], None] | None = None
         self._audio_listeners: list[AudioListener] = []
         self._listeners_lock = threading.Lock()
+        self._input_rms_log_counter = 0
+        self._last_input_rms = 0.0
 
         # 设备配置（初始化后填充）
         self.device_config: DeviceConfig | None = None
@@ -156,35 +159,49 @@ class AudioCodec:
             return
 
         try:
-            # 1. 格式转换（下混 + 重采样）
-            # 保留 indata 的 (frames, channels) 形状，让 downmix_to_mono 正确下混
-            audio_converted = self.converter.convert_input(
-                indata, AudioConfig.INPUT_FRAME_SIZE
-            )
-            if audio_converted is None:
-                return  # 数据不足，等待下一帧
+            from src.utils.audio_utils import downmix_to_mono
 
-            # 1.5 AEC：以播放回调抽取的 far 参考消回声（旁路时原样返回）
-            if self._aec is not None and self._aec.active:
-                audio_converted = self._aec.process_near(audio_converted)
-
-            # 2. Opus 编码（float32 输入）
-            if self._encoded_callback:
-                try:
-                    opus_data = self.opus_codec.encode(
-                        audio_converted, AudioConfig.INPUT_FRAME_SIZE
+            raw_mono = downmix_to_mono(indata, keepdims=False)
+            if raw_mono.size > 0:
+                self._last_input_rms = float(
+                    np.sqrt(np.mean(np.square(raw_mono.astype(np.float32))))
+                )
+                self._input_rms_log_counter += 1
+                if self._input_rms_log_counter % 50 == 0:
+                    peak = float(np.max(np.abs(raw_mono)))
+                    logger.debug(
+                        "Mic capture RMS=%.5f peak=%.5f (always-on, state-independent)",
+                        self._last_input_rms,
+                        peak,
                     )
-                    self._encoded_callback(opus_data)
-                except Exception as e:
-                    logger.warning(f"编码失败: {e}", exc_info=True)
-
-            # 3. 通知监听器（线程安全）
-            with self._listeners_lock:
-                for listener in self._audio_listeners:
+                if self._input_level_callback:
                     try:
-                        listener.on_audio_data(audio_converted.copy())
+                        self._input_level_callback(self._last_input_rms)
                     except Exception as e:
-                        logger.warning(f"监听器处理失败: {e}", exc_info=True)
+                        logger.debug(f"输入电平回调失败: {e}")
+
+            # 1. 格式转换（下混 + 重采样）— 可能一次回调产出多帧
+            for audio_converted in self.converter.iter_input_frames(
+                indata, AudioConfig.INPUT_FRAME_SIZE
+            ):
+                if self._aec is not None and self._aec.active:
+                    audio_converted = self._aec.process_near(audio_converted)
+
+                if self._encoded_callback:
+                    try:
+                        opus_data = self.opus_codec.encode(
+                            audio_converted, AudioConfig.INPUT_FRAME_SIZE
+                        )
+                        self._encoded_callback(opus_data)
+                    except Exception as e:
+                        logger.warning(f"编码失败: {e}", exc_info=True)
+
+                with self._listeners_lock:
+                    for listener in self._audio_listeners:
+                        try:
+                            listener.on_audio_data(audio_converted.copy())
+                        except Exception as e:
+                            logger.warning(f"监听器处理失败: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"输入回调错误: {e}", exc_info=True)
@@ -347,6 +364,14 @@ class AudioCodec:
             logger.info("已设置编码音频回调")
         else:
             logger.info("已清除编码音频回调")
+
+    def set_input_level_callback(self, callback: Callable[[float], None] | None):
+        """设置原始麦克风电平回调（IDLE 时也持续推送，供 UI / 诊断）."""
+        self._input_level_callback = callback
+
+    @property
+    def last_input_rms(self) -> float:
+        return self._last_input_rms
 
     def add_audio_listener(self, listener: AudioListener):
         """添加音频监听器（线程安全）

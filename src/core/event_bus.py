@@ -68,6 +68,8 @@ class Events:
 
     # 配置变更事件
     CONFIG_CHANGED = "config_changed"  # 配置已变更（需要热重载）
+    # 实时麦克风输入电平 (0.0–1.0)，IDLE 时也持续推送
+    MIC_INPUT_LEVEL = "mic_input_level"
     # MCP 工具暴露变更后：断开并重连协议，使服务端重新 tools/list
     PROTOCOL_RECONNECT_REQUEST = "protocol_reconnect_request"
 

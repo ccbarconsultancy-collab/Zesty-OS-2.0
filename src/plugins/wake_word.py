@@ -93,6 +93,7 @@ class WakeWordPlugin(Plugin):
                 logger.warning("未找到 audio_codec，无法启动唤醒词检测")
                 return
             await self.detector.start(self._audio_plugin.codec)
+            self._resume_detection()
             wake_phrase = (
                 self._ctx.get_config().get_config("WAKE_WORD_OPTIONS.WAKE_WORD")
                 or "Hey Jesty"

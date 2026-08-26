@@ -310,6 +310,7 @@
   let rotY = 0, rotX = 0.32; let targetRotX = 0.32;
   let throbEnergy = 0; let throbTime = 0; let idlePulseTime = 0;
   let uiPhase = 'wake_ready';
+  let micLevel = 0;
 
   function fibonacciSpherePoints(n){
     const pts = []; const gAngle = Math.PI * (3 - Math.sqrt(5)); 
@@ -358,7 +359,13 @@
     idlePulseTime += dt; throbTime += dt;
     const spinRate = uiPhase === 'listening' ? 0.0014 : uiPhase === 'speaking' ? 0.0010 : uiPhase === 'processing' ? 0.0009 : 0.00062;
     rotY += spinRate * (dt*60);
-    if (uiPhase === 'listening' || uiPhase === 'speaking' || uiPhase === 'processing') throbEnergy = Math.max(throbEnergy, uiPhase === 'listening' ? 1.4 : 1.1);
+    if (uiPhase === 'listening' || uiPhase === 'speaking' || uiPhase === 'processing') {
+      throbEnergy = Math.max(throbEnergy, uiPhase === 'listening' ? 1.4 : 1.1);
+    } else if (uiPhase === 'wake_ready' || uiPhase === 'idle') {
+      // Live mic RMS drives mesh at ARMED — no PTT required
+      const micDrive = Math.min(2.2, micLevel * 18);
+      if (micDrive > 0.05) throbEnergy = Math.max(throbEnergy, micDrive);
+    }
     rotX += (targetRotX - rotX) * 0.02; targetRotX = 0.32 + Math.sin(now*0.00018) * 0.09;
     if(throbEnergy > 0) throbEnergy *= Math.pow(0.045, dt); ctx.clearRect(0,0,W,H);
     
@@ -429,6 +436,10 @@
     };
     const cls = classMap[state];
     if (cls) orb.classList.add(cls);
+  }
+
+  function onInputLevel(level) {
+    micLevel = Math.max(0, Math.min(1, Number(level) || 0));
   }
 
   function onStatusText(text) {
@@ -565,6 +576,7 @@
       window.pyBridge.buttonLabel.connect(onButtonLabel);
       window.pyBridge.autoMode.connect(onAutoMode);
       window.pyBridge.statusText.connect(onStatusText);
+      window.pyBridge.inputLevel.connect(onInputLevel);
       onDeviceState('wake_ready');
       onConnectionState('disconnected');
       onStatusText('WAKE READY');

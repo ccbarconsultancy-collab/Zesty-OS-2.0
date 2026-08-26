@@ -6,14 +6,32 @@
 - 设备信息查询
 """
 
+import sys
 from dataclasses import dataclass
 
 from src.constants.constants import AudioConfig
 from src.logging import get_logger
-from src.utils.audio_utils import find_device_by_name, select_audio_device
+from src.utils.audio_utils import (
+    find_device_by_name,
+    find_macos_builtin_input,
+    select_audio_device,
+)
 from src.utils.config_manager import ConfigManager
 
 logger = get_logger()
+
+# Always-on capture: larger PortAudio block reduces macOS CoreAudio dropouts.
+INPUT_STREAM_BLOCKSIZE = 1024
+
+
+def log_selected_input_hardware(input_info: dict) -> None:
+    """Print prominent startup line for mic device audit."""
+    line = (
+        f"[AUDIO HARDWARE] Selected Input Device: "
+        f"[{input_info['name']}] (Index: {input_info['index']})"
+    )
+    print(line, flush=True)
+    logger.info(line)
 
 
 @dataclass
@@ -28,6 +46,7 @@ class DeviceConfig:
     output_channels: int
     input_frame_size: int
     output_frame_size: int
+    input_blocksize: int = 1024
 
 
 class AudioDeviceManager:
@@ -77,6 +96,21 @@ class AudioDeviceManager:
             if not input_info:
                 raise RuntimeError("无法找到可用的输入设备")
 
+        # 2b. macOS：非内置麦克风时回退到 Built-in，避免静音/空缓冲
+        if sys.platform == "darwin":
+            builtin = find_macos_builtin_input()
+            if builtin:
+                name_lc = input_info.get("name", "").casefold()
+                is_builtin = any(
+                    p in name_lc for p in ("built-in", "macbook", "internal microphone")
+                )
+                if not is_builtin and builtin["index"] != input_info["index"]:
+                    logger.warning(
+                        f"非内置输入 '{input_info['name']}' 可能导致静音；"
+                        f"回退到 '{builtin['name']}'"
+                    )
+                    input_info = builtin
+
         if not output_info:
             logger.info("自动选择输出设备...")
             output_info = select_audio_device("output")
@@ -98,6 +132,8 @@ class AudioDeviceManager:
             f"使用输出设备: {output_info['name']} | "
             f"{device_output_sample_rate}Hz {output_channels}ch"
         )
+
+        log_selected_input_hardware(input_info)
 
         # 4. 保存设备名称（而非 ID）到配置
         if (
@@ -125,4 +161,5 @@ class AudioDeviceManager:
             output_frame_size=int(
                 device_output_sample_rate * (AudioConfig.FRAME_DURATION / 1000)
             ),
+            input_blocksize=INPUT_STREAM_BLOCKSIZE,
         )

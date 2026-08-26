@@ -372,6 +372,36 @@ def find_device_by_name(
     return None
 
 
+def find_macos_builtin_input(
+    *, include_virtual: bool = False
+) -> dict[str, Any] | None:
+    """Return the built-in Mac microphone if present."""
+    if sys.platform != "darwin":
+        return None
+
+    try:
+        devices = list(sd.query_devices())
+    except Exception:
+        return None
+
+    key_channels = "max_input_channels"
+    patterns = ("built-in", "macbook", "internal microphone")
+
+    for i, d in enumerate(devices):
+        if not _valid(devices, i, "input", include_virtual):
+            continue
+        name = d.get("name", "").casefold()
+        if any(p in name for p in patterns):
+            sr = d.get("default_samplerate", None)
+            return {
+                "index": int(d.get("index", i)),
+                "name": d.get("name", "Unknown"),
+                "sample_rate": int(sr) if isinstance(sr, (int, float)) else None,
+                "channels": int(d.get(key_channels, 0)),
+            }
+    return None
+
+
 def select_audio_device(
     kind: str, *, include_virtual: bool = False
 ) -> dict[str, Any] | None:

@@ -49,15 +49,18 @@ class AudioStreamManager:
         try:
             # 使用 ALSAErrorSuppressor 抑制 Linux 上的 ALSA 警告
             with ALSAErrorSuppressor():
-                # 输入流
+                # 输入流 — always-on, 大块缓冲减少 macOS CoreAudio 空读
+                in_block = getattr(
+                    self.device_config, "input_blocksize", self.device_config.input_frame_size
+                )
                 self.input_stream = sd.InputStream(
                     device=self.device_config.input_device_id,
                     samplerate=self.device_config.input_sample_rate,
                     channels=self.device_config.input_channels,
-                    dtype=np.float32,  # 统一 float32
-                    blocksize=self.device_config.input_frame_size,
+                    dtype=np.float32,
+                    blocksize=in_block,
                     callback=input_callback,
-                    latency="low",
+                    latency=0,
                 )
 
                 # 输出流
@@ -153,9 +156,13 @@ class AudioStreamManager:
                         samplerate=self.device_config.input_sample_rate,
                         channels=self.device_config.input_channels,
                         dtype=np.float32,
-                        blocksize=self.device_config.input_frame_size,
+                        blocksize=getattr(
+                            self.device_config,
+                            "input_blocksize",
+                            self.device_config.input_frame_size,
+                        ),
                         callback=input_callback,
-                        latency="low",
+                        latency=0,
                     )
                     self.input_stream.start()
                     logger.info("输入流重新初始化成功")

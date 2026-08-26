@@ -80,6 +80,26 @@ class AudioConverter:
         if self.needs_output_upmix:
             logger.info(f"输出声道上混: {from_channels}ch → {to_channels}ch")
 
+    def iter_input_frames(
+        self, audio: np.ndarray, target_size: int
+    ):
+        """Yield complete 16 kHz mono frames; keeps partial samples in buffer."""
+        if self.needs_input_downmix:
+            audio = downmix_to_mono(audio, keepdims=False)
+        else:
+            audio = audio.flatten()
+
+        if self.input_resampler:
+            resampled = self.input_resampler.resample_chunk(audio, last=False)
+            if len(resampled) > 0:
+                self._input_buffer.extend(resampled)
+        else:
+            self._input_buffer.extend(audio.tolist())
+
+        while len(self._input_buffer) >= target_size:
+            frame_data = [self._input_buffer.popleft() for _ in range(target_size)]
+            yield np.array(frame_data, dtype=np.float32)
+
     def convert_input(
         self, audio: np.ndarray, target_size: int
     ) -> np.ndarray | None:

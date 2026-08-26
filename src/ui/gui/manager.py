@@ -63,9 +63,16 @@ class GuiViewManager(QObject):
             self._html_ui_bridge.notify_connection_state("disconnected")
             self._html_ui_bridge.notify_error("Network connection lost")
 
+        async def on_mic_input_level(level) -> None:
+            try:
+                self._html_ui_bridge.notify_input_level(float(level))
+            except (TypeError, ValueError):
+                pass
+
         self._event_bus.on(Events.PROTOCOL_CONNECTED, on_protocol_connected)
         self._event_bus.on(Events.PROTOCOL_DISCONNECTED, on_protocol_disconnected)
         self._event_bus.on(Events.NETWORK_ERROR, on_network_error)
+        self._event_bus.on(Events.MIC_INPUT_LEVEL, on_mic_input_level)
 
     async def start(self, mode: str = "gui"):
         if mode == "cli":

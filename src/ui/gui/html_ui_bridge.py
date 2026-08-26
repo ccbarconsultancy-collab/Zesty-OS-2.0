@@ -44,6 +44,7 @@ class HtmlUiBridge(QObject):
     buttonLabel = Signal(str)
     autoMode = Signal(bool)
     statusText = Signal(str)
+    inputLevel = Signal(float)
 
     def __init__(self, event_bridge: "EventBridge", parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -143,3 +144,7 @@ class HtmlUiBridge(QObject):
             self.notify_device_state(mapped)
         elif status:
             self.notify_notice(status)
+
+    def notify_input_level(self, level: float) -> None:
+        """Push normalized mic RMS (0–1) for mesh/waveform at IDLE."""
+        self.inputLevel.emit(max(0.0, min(1.0, float(level))))
