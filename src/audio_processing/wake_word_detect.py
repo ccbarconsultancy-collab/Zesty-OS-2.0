@@ -108,7 +108,7 @@ class WakeWordDetector:
         try:
             # 1. 检查配置是否启用
             config = get_config()
-            if not config.get_config("WAKE_WORD_OPTIONS.USE_WAKE_WORD", False):
+            if not config.get_config("WAKE_WORD_OPTIONS.USE_WAKE_WORD", True):
                 logger.info("唤醒词功能已禁用")
                 self.enabled = False
                 return False
@@ -319,8 +319,9 @@ class WakeWordDetector:
             # Thread-safe queue: mic callback runs on PortAudio thread, not asyncio.
             self._audio_queue = queue.Queue(maxsize=100)
 
-            # Create detection stream
-            self._stream = self._keyword_spotter.create_stream()
+            # Create detection stream (serialized with ONNX inference)
+            with self._onnx_lock:
+                self._stream = self._keyword_spotter.create_stream()
 
             # Register as audio listener
             self.audio_codec.add_audio_listener(self)

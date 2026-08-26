@@ -46,16 +46,8 @@ class WakeWordPlugin(Plugin):
         # 订阅配置变更事件（轻量，不加载模型）
         from src.core.event_bus import Events
         ctx.event_bus.on(Events.CONFIG_CHANGED, self._on_config_changed)
-        # 订阅设备状态变更，协调唤醒词检测的暂停/恢复
-        ctx.event_bus.on(Events.DEVICE_STATE_CHANGED, self._on_device_state_changed)
-
-    async def _on_device_state_changed(self, data=None) -> None:
-        """EventBus 回调：从事件载荷提取 new_state 并协调检测器."""
-        if not data:
-            return
-        state = data.get("new_state") if isinstance(data, dict) else data
-        if state is not None:
-            await self.on_device_state_changed(state)
+        # 设备状态协调由 PluginManager.notify_device_state_changed 统一分发，
+        # 避免与 EventBus 重复订阅导致 pause/resume 执行两次。
 
     async def _on_config_changed(self, data=None):
         """配置变更时重新加载唤醒词模型."""
@@ -143,33 +135,22 @@ class WakeWordPlugin(Plugin):
         """
         唤醒词检测回调.
 
-        ARMED → LISTENING 状态转换：检测到唤醒词后自动建立协议连接并开始监听，
-        无需用户额外按下按钮。
+        ARMED (IDLE) → LISTENING：检测到唤醒词后建立协议连接、通知服务器、
+        开始监听并发送麦克风音频；TTS 结束后由会话状态机回到 IDLE 并重新武装。
         """
         logger.info(f"唤醒词 detected: {wake_word}, 进入 LISTENING 状态")
         try:
-            logger.info("WAKE_CALLBACK_TRIGGERED: connect_protocol -> start_listening")
-            # 暂停唤醒词检测，进入会话监听
+            logger.info("WAKE_CALLBACK_TRIGGERED: start_listening -> send_wake_word_detected")
             self._pause_detection()
 
             if self._ctx.is_speaking():
-                # 如果 AI 正在说话，中止 TTS，然后开始新的监听会话
                 await self._cmd.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
                 if self._audio_plugin and self._audio_plugin.codec:
                     await self._audio_plugin.codec.clear_audio_queue()
-                # 等待打断完成后再开始监听
                 await asyncio.sleep(0.1)
             elif self._ctx.is_listening():
-                # 已在监听中（可能来自手动按键），唤醒词触发重新发送
+                # 手动 PTT 已在监听：仅补发 detect，不阻断用户会话
                 await self._send_wake_word_detected(wake_word)
-                return
-
-            # 建立协议连接并开始监听
-            logger.info("CONNECT_PROTOCOL_CALLED (wake word)")
-            ok = await self._cmd.connect_protocol()
-            if not ok:
-                logger.error("唤醒词触发后协议连接失败，无法开始对话")
-                self._resume_detection()
                 return
 
             from src.constants.constants import ListeningMode
@@ -183,10 +164,10 @@ class WakeWordPlugin(Plugin):
             await self._cmd.start_listening(mode)
             # 单次唤醒会话：TTS 结束后回到 IDLE，恢复唤醒词待命（Siri 式循环）
             self._cmd.set_keep_listening(False)
+            await self._send_wake_word_detected(wake_word)
             logger.info(f"开始监听会话 (mode={mode})，发送麦克风音频到服务器")
         except Exception as e:
             logger.error(f"处理唤醒词检测失败: {e}", exc_info=True)
-            # 确保唤醒词检测器在错误后重新武装
             self._resume_detection()
 
     async def _send_wake_word_detected(self, wake_word: str) -> None:
