@@ -30,6 +30,7 @@ async def test_wake_word_on_detected_sends_detect_and_starts_listening():
 
     await plugin._on_detected("HEYJESTY", "HEYJESTY")
 
+    plugin._cmd.connect_protocol.assert_awaited_once()
     plugin._cmd.start_listening.assert_awaited_once_with(ListeningMode.AUTO_STOP)
     plugin._cmd.set_keep_listening.assert_called_once_with(False)
     plugin._cmd.send_wake_word_detected.assert_awaited_once_with("HEYJESTY")
@@ -119,3 +120,25 @@ def test_use_wake_word_defaults_to_enabled():
 
     cm = ConfigManager()
     assert cm.get_config("WAKE_WORD_OPTIONS.USE_WAKE_WORD") is True
+    assert cm.get_config("WAKE_WORD_OPTIONS.WAKE_WORD") == "Hey Jesty"
+
+
+def test_wake_word_phonetic_aliases_keywords_file(tmp_path, monkeypatch):
+    from src.audio_processing.wake_word_detect import _sync_wake_word_assets
+    from src.utils.config_manager import ConfigManager, reset_config
+
+    reset_config()
+    monkeypatch.setattr(
+        "src.audio_processing.wake_word_detect.get_user_keywords_path",
+        lambda lang: tmp_path / f"{lang}_keywords.txt",
+    )
+
+    cm = ConfigManager()
+    cm.ensure_zesty_wake_word_profile()
+    _sync_wake_word_assets(cm)
+
+    body = (tmp_path / "en_keywords.txt").read_text(encoding="utf-8")
+    assert "@HEYJESTY" in body
+    assert "@HEYJISTRY" in body
+    assert "@JESTY" in body
+    assert body.count("\n") >= 3

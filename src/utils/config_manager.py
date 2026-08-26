@@ -23,6 +23,7 @@ def initialize_config() -> "ConfigManager":
     global _current
     if _current is None:
         _current = ConfigManager()
+        _current.ensure_zesty_wake_word_profile()
         # 应用 PATHS 覆盖并迁移 cache/logs/music/keywords（config 目录不迁）
         try:
             from src.utils.resource_finder import apply_path_overrides_from_config
@@ -58,11 +59,11 @@ class ConfigManager:
     """
 
     # 当前 schema 版本；加载时 migrate_config() 会升到此版本
-    CONFIG_VERSION = 1
+    CONFIG_VERSION = 2
 
     # 默认配置（完整产品 schema；加载时 deepcopy，禁止与实例共享嵌套对象）
     DEFAULT_CONFIG = {
-        "CONFIG_VERSION": 1,
+        "CONFIG_VERSION": 2,
         "SYSTEM_OPTIONS": {
             "CLIENT_ID": None,
             "DEVICE_ID": None,
@@ -79,15 +80,16 @@ class ConfigManager:
         },
         "WAKE_WORD_OPTIONS": {
             "USE_WAKE_WORD": True,
-            "MODEL_PATH": "models/zh",
+            "MODEL_PATH": "models/en",
             "NUM_THREADS": 4,
             "PROVIDER": "cpu",
             "MAX_ACTIVE_PATHS": 2,
-            "KEYWORDS_SCORE": 1.8,
-            "KEYWORDS_THRESHOLD": 0.2,
+            "KEYWORDS_SCORE": 1.4,
+            "KEYWORDS_THRESHOLD": 0.12,
             "NUM_TRAILING_BLANKS": 1,
-            "WAKE_WORD": "你好小智",
-            "WAKE_WORD_LANG": "zh",
+            "WAKE_WORD": "Hey Jesty",
+            "WAKE_WORD_LANG": "en",
+            "PHONETIC_ALIASES": ["Hey Jesty", "Hey Jistry", "Jesty"],
         },
         "CAMERA": {
             "camera_index": 0,
@@ -326,7 +328,21 @@ class ConfigManager:
                 pass
             ver = 1
 
-        # 将来：if ver < 2: ...; ver = 2
+        if ver < 2:
+            wwo = config.setdefault("WAKE_WORD_OPTIONS", {})
+            if not isinstance(wwo, dict):
+                wwo = {}
+                config["WAKE_WORD_OPTIONS"] = wwo
+            wwo["USE_WAKE_WORD"] = True
+            wwo["WAKE_WORD"] = "Hey Jesty"
+            wwo["WAKE_WORD_LANG"] = "en"
+            wwo["MODEL_PATH"] = "models/en"
+            wwo["KEYWORDS_THRESHOLD"] = 0.12
+            wwo["KEYWORDS_SCORE"] = 1.4
+            wwo["PHONETIC_ALIASES"] = ["Hey Jesty", "Hey Jistry", "Jesty"]
+            ver = 2
+
+        # 将来：if ver < 3: ...; ver = 3
 
         if ver != original or config.get("CONFIG_VERSION") != self.CONFIG_VERSION:
             config["CONFIG_VERSION"] = self.CONFIG_VERSION
@@ -395,6 +411,30 @@ class ConfigManager:
             else:
                 result[key] = value
         return result
+
+    def ensure_zesty_wake_word_profile(self) -> None:
+        """Zesty OS 2.0：强制启用手离 Hey Jesty 唤醒词配置."""
+        desired = {
+            "WAKE_WORD_OPTIONS.USE_WAKE_WORD": True,
+            "WAKE_WORD_OPTIONS.WAKE_WORD": "Hey Jesty",
+            "WAKE_WORD_OPTIONS.WAKE_WORD_LANG": "en",
+            "WAKE_WORD_OPTIONS.MODEL_PATH": "models/en",
+            "WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD": 0.12,
+            "WAKE_WORD_OPTIONS.KEYWORDS_SCORE": 1.4,
+            "WAKE_WORD_OPTIONS.PHONETIC_ALIASES": [
+                "Hey Jesty",
+                "Hey Jistry",
+                "Jesty",
+            ],
+        }
+        changed = False
+        for path, value in desired.items():
+            if self.get_config(path) != value:
+                self.update_config(path, value, save=False)
+                changed = True
+        if changed:
+            self.save_config()
+            logger.info("已强制应用 Zesty Hey Jesty 唤醒词配置")
 
     def get_config(self, path: str, default: Any = None) -> Any:
         """

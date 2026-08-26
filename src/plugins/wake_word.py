@@ -93,6 +93,16 @@ class WakeWordPlugin(Plugin):
                 logger.warning("未找到 audio_codec，无法启动唤醒词检测")
                 return
             await self.detector.start(self._audio_plugin.codec)
+            wake_phrase = (
+                self._ctx.get_config().get_config("WAKE_WORD_OPTIONS.WAKE_WORD")
+                or "Hey Jesty"
+            )
+            banner = (
+                f"[AUDIO CHECK] Continuous Mic Stream: ACTIVE | "
+                f"Wake Word: '{wake_phrase}'"
+            )
+            print(banner, flush=True)
+            logger.info(banner)
             logger.info("唤醒词检测器已就绪 (ARMED)，等待唤醒词...")
         except ImportError as e:
             logger.error(f"无法导入唤醒词检测器: {e}", exc_info=True)
@@ -133,25 +143,17 @@ class WakeWordPlugin(Plugin):
 
     async def _on_detected(self, wake_word, full_text):
         """
-        唤醒词检测回调.
-
-        ARMED (IDLE) → LISTENING：检测到唤醒词后建立协议连接、通知服务器、
-        开始监听并发送麦克风音频；TTS 结束后由会话状态机回到 IDLE 并重新武装。
+        唤醒词检测回调 — 直接强制 start_listening，绕过 UI/按钮守卫。
         """
-        logger.info(f"唤醒词 detected: {wake_word}, 进入 LISTENING 状态")
+        phrase = (wake_word or full_text or "Hey Jesty").strip()
+        logger.info(f"WAKE_WORD_HIT: {phrase!r} — forcing start_listening (bypass UI guards)")
+        self._pause_detection()
         try:
-            logger.info("WAKE_CALLBACK_TRIGGERED: start_listening -> send_wake_word_detected")
-            self._pause_detection()
-
             if self._ctx.is_speaking():
                 await self._cmd.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
                 if self._audio_plugin and self._audio_plugin.codec:
                     await self._audio_plugin.codec.clear_audio_queue()
                 await asyncio.sleep(0.1)
-            elif self._ctx.is_listening():
-                # 手动 PTT 已在监听：仅补发 detect，不阻断用户会话
-                await self._send_wake_word_detected(wake_word)
-                return
 
             from src.constants.constants import ListeningMode
 
@@ -160,12 +162,17 @@ class WakeWordPlugin(Plugin):
                 if self._ctx.get_config().get_config("AEC_OPTIONS.ENABLED", True)
                 else ListeningMode.AUTO_STOP
             )
+
+            if not await self._cmd.connect_protocol():
+                logger.error("Wake-word: connect_protocol failed — cannot start listening")
+                self._resume_detection()
+                return
+
             logger.info(f"START_LISTENING_CALLED (wake word, mode={mode})")
             await self._cmd.start_listening(mode)
-            # 单次唤醒会话：TTS 结束后回到 IDLE，恢复唤醒词待命（Siri 式循环）
             self._cmd.set_keep_listening(False)
-            await self._send_wake_word_detected(wake_word)
-            logger.info(f"开始监听会话 (mode={mode})，发送麦克风音频到服务器")
+            await self._cmd.send_wake_word_detected(phrase)
+            logger.info(f"Wake-word session active (mode={mode}), streaming mic to server")
         except Exception as e:
             logger.error(f"处理唤醒词检测失败: {e}", exc_info=True)
             self._resume_detection()

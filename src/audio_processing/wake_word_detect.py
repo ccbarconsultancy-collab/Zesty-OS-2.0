@@ -16,26 +16,48 @@ logger = get_logger()
 
 _STOP_SENTINEL = object()
 
+# Phonetic aliases for natural speech variation (sherpa-onnx multi-line keywords).
+DEFAULT_PHONETIC_ALIASES = ("Hey Jesty", "Hey Jistry", "Jesty")
+
+
+def _collect_wake_phrases(config: ConfigManager, primary: str) -> list[str]:
+    """Primary wake phrase plus configured phonetic aliases (deduped)."""
+    aliases = config.get_config("WAKE_WORD_OPTIONS.PHONETIC_ALIASES") or []
+    if not aliases:
+        aliases = list(DEFAULT_PHONETIC_ALIASES)
+
+    phrases: list[str] = []
+    seen: set[str] = set()
+    for raw in (primary, *aliases):
+        phrase = (raw or "").strip()
+        key = phrase.lower()
+        if phrase and key not in seen:
+            phrases.append(phrase)
+            seen.add(key)
+    return phrases
+
 
 def _sync_wake_word_assets(config: ConfigManager) -> tuple[str, str, Path]:
-    """Derive model/lang/keywords from WAKE_WORD and keep files in sync."""
-    from src.audio_processing.keyword_converters import convert_wake_word
+    """Derive model/lang/keywords from WAKE_WORD + aliases and keep files in sync."""
+    from src.audio_processing.keyword_converters import convert_wake_word_phrases
 
     wake_word = (config.get_config("WAKE_WORD_OPTIONS.WAKE_WORD") or "").strip()
     if not wake_word:
         raise ValueError("WAKE_WORD_OPTIONS.WAKE_WORD is empty")
 
-    keyword_line, lang, model_path = convert_wake_word(wake_word)
+    phrases = _collect_wake_phrases(config, wake_word)
+    keyword_body, lang, model_path = convert_wake_word_phrases(phrases)
     keywords_path = get_user_keywords_path(lang)
     keywords_path.parent.mkdir(parents=True, exist_ok=True)
 
-    expected = f"{keyword_line}\n"
     current = (
         keywords_path.read_text(encoding="utf-8") if keywords_path.exists() else ""
     )
-    if current != expected:
-        keywords_path.write_text(expected, encoding="utf-8")
-        logger.info(f"同步 keywords 文件: {wake_word!r} -> {keywords_path}")
+    if current != keyword_body:
+        keywords_path.write_text(keyword_body, encoding="utf-8")
+        logger.info(
+            f"同步 keywords 文件 ({len(phrases)} 条别名): {phrases} -> {keywords_path}"
+        )
 
     stored_lang = config.get_config("WAKE_WORD_OPTIONS.WAKE_WORD_LANG")
     stored_model = config.get_config("WAKE_WORD_OPTIONS.MODEL_PATH")
@@ -49,7 +71,7 @@ def _sync_wake_word_assets(config: ConfigManager) -> tuple[str, str, Path]:
         config.save_config()
 
     logger.info(
-        f"WAKE_WORD_ARMED: {wake_word!r} (lang={lang}, model={model_path})"
+        f"WAKE_WORD_ARMED: {wake_word!r} aliases={phrases} (lang={lang}, model={model_path})"
     )
     return model_path, lang, keywords_path
 
@@ -103,6 +125,8 @@ class WakeWordDetector:
         self._wake_word_lang = "zh"
         self._keywords_path: Optional[Path] = None
         self._logged_first_audio_frame = False
+        self._rms_frame_counter = 0
+        self._rms_log_interval = 50
 
     async def initialize(self, model_path: Optional[str] = None) -> bool:
         try:
@@ -160,18 +184,18 @@ class WakeWordDetector:
         self._num_threads = config.get_config("WAKE_WORD_OPTIONS.NUM_THREADS", 4)
         self._provider = config.get_config("WAKE_WORD_OPTIONS.PROVIDER", "cpu")
         self._max_active_paths = config.get_config("WAKE_WORD_OPTIONS.MAX_ACTIVE_PATHS", 2)
-        self._keywords_score = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_SCORE", 1.8)
-        self._keywords_threshold = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD", 0.2)
+        self._keywords_score = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_SCORE", 1.4)
+        self._keywords_threshold = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD", 0.12)
         self._num_trailing_blanks = config.get_config("WAKE_WORD_OPTIONS.NUM_TRAILING_BLANKS", 1)
 
         # Validate
-        if not 0.1 <= self._keywords_threshold <= 1.0:
-            logger.warning(f"关键词阈值 {self._keywords_threshold} 超出范围，重置为0.25")
-            self._keywords_threshold = 0.25
+        if not 0.05 <= self._keywords_threshold <= 1.0:
+            logger.warning(f"关键词阈值 {self._keywords_threshold} 超出范围，重置为0.12")
+            self._keywords_threshold = 0.12
 
         if not 0.1 <= self._keywords_score <= 10.0:
-            logger.warning(f"关键词分数 {self._keywords_score} 超出范围，重置为2.0")
-            self._keywords_score = 2.0
+            logger.warning(f"关键词分数 {self._keywords_score} 超出范围，重置为1.4")
+            self._keywords_score = 1.4
 
         logger.debug(f"KWS配置: 阈值={self._keywords_threshold}, 分数={self._keywords_score}")
 
@@ -486,6 +510,19 @@ class WakeWordDetector:
             return
 
         audio_data = np.ascontiguousarray(audio_data, dtype=np.float32).reshape(-1)
+
+        self._rms_frame_counter += 1
+        if self._rms_frame_counter % self._rms_log_interval == 0:
+            rms = float(np.sqrt(np.mean(np.square(audio_data))))
+            peak = float(np.max(np.abs(audio_data)))
+            logger.debug(
+                "KWS mic level: RMS=%.5f peak=%.5f frames=%d paused=%s running=%s",
+                rms,
+                peak,
+                self._rms_frame_counter,
+                self._paused,
+                self._running,
+            )
 
         detected_result = None
 

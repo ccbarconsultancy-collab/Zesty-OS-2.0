@@ -13,6 +13,7 @@ __all__ = [
     "detect_language",
     "get_converter",
     "convert_wake_word",
+    "convert_wake_word_phrases",
 ]
 
 # Singleton converters
@@ -58,3 +59,25 @@ def convert_wake_word(text: str) -> Tuple[str, str, str]:
     converter = get_converter(language)
     keyword_line = converter.convert(text)
     return keyword_line, language, converter.model_path
+
+
+def convert_wake_word_phrases(phrases: list[str]) -> Tuple[str, str, str]:
+    """Convert multiple wake phrases into a multi-line sherpa keywords file body."""
+    if not phrases:
+        raise ValueError("phrases must not be empty")
+
+    lines: list[str] = []
+    lang: str | None = None
+    model_path: str | None = None
+    for text in phrases:
+        phrase = (text or "").strip()
+        if not phrase:
+            continue
+        line, lang, model_path = convert_wake_word(phrase)
+        if line not in lines:
+            lines.append(line)
+
+    if not lines or lang is None or model_path is None:
+        raise ValueError("no valid wake phrases to convert")
+
+    return "\n".join(lines) + "\n", lang, model_path
