@@ -72,9 +72,36 @@ from src.logging import get_logger  # noqa: E402
 
 logger = get_logger()
 
+_ZESTY_ACTIVATION_BANNER = "==== ZESTY OS ACTIVATION CODE: [{code}] ===="
+
+
+def _print_zesty_activation_code(code: str, message: str | None = None) -> None:
+    """在终端醒目输出 6 位 Xiaozhi 配对验证码."""
+    if not code:
+        return
+    print(f"\n{_ZESTY_ACTIVATION_BANNER.format(code=code)}")
+    if message:
+        print(message)
+    print(
+        "Enter this code in the Xiaozhi Console (xiaozhi.me) to link this device.\n"
+        "Waiting for admin confirmation...\n"
+    )
+    sys.stdout.flush()
+
+
+def _is_device_linked(init_result: dict, activation_service) -> bool:
+    """设备是否已与 Xiaozhi 后台完成配对."""
+    if not init_result.get("success", False):
+        return False
+    if init_result.get("need_activation_ui", False):
+        return False
+    return activation_service.is_activated() or bool(
+        init_result.get("server_activated", False)
+    )
+
 
 async def handle_activation(mode: str) -> bool:
-    """处理设备激活流程.
+    """处理 Xiaozhi 6 位验证码设备配对与激活流程.
 
     Args:
         mode: 运行模式，"gui"、"cli"、"tui" 或 "gpio"
@@ -85,7 +112,7 @@ async def handle_activation(mode: str) -> bool:
     try:
         from src.activation import ActivationService, create_activation_ui
 
-        logger.info("开始设备激活流程检查...")
+        logger.info("开始 Xiaozhi 设备配对检查...")
         activation_service = await ActivationService.create()
         init_result = await activation_service.initialize()
 
@@ -93,12 +120,32 @@ async def handle_activation(mode: str) -> bool:
             logger.error(f"初始化失败: {init_result.get('error', '未知错误')}")
             return False
 
-        if not init_result.get("need_activation_ui", False):
-            logger.info("设备已激活，无需激活流程")
+        if _is_device_linked(init_result, activation_service):
+            logger.info("设备已配对，跳过激活流程，进入语音助手模式")
             return True
 
+        activation_data = activation_service.get_activation_data() or {}
+        code = activation_data.get("code")
+        if not code:
+            logger.error("服务器未返回 6 位配对验证码")
+            return False
+
+        _print_zesty_activation_code(code, activation_data.get("message"))
+
         ui = create_activation_ui(mode, activation_service, init_result)
-        return await ui.run()
+        paired = await ui.run()
+        if not paired:
+            logger.error("设备配对失败或已取消")
+            return False
+
+        synced = await activation_service.sync_paired_credentials()
+        if not synced:
+            logger.warning("配对成功但凭证同步失败，将使用本地已有配置继续启动")
+        else:
+            logger.info("Dashboard 同步完成，凭证已保存至 config.json")
+
+        logger.info("设备配对完成，进入语音助手模式")
+        return True
 
     except Exception as e:
         logger.error(f"激活流程异常: {e}", exc_info=True)

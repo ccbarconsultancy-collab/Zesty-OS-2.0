@@ -173,6 +173,19 @@ class ActivationService:
     def is_activating(self) -> bool:
         return self._is_activating
 
+    async def sync_paired_credentials(self) -> bool:
+        """配对成功后重新拉取 OTA，将 WebSocket token 等写入 config.json."""
+        try:
+            await self._ota.fetch_ota_config()
+            self._activation_data = self._ota.activation_data
+            self._activation_status["server_activated"] = self._ota.server_activated
+            self._activation_status["local_activated"] = self.is_activated()
+            self.logger.info("配对凭证已同步至 config.json")
+            return True
+        except Exception as e:
+            self.logger.error(f"配对后同步失败: {e}", exc_info=True)
+            return False
+
     def get_config_manager(self) -> ConfigManager:
         return self.config_manager
 
