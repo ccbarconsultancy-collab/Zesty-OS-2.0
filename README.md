@@ -1,10 +1,7 @@
 # Zesty OS 2.0
 
-<p align="center" class="trendshift">
-  <a href="https://trendshift.io/repositories/14130" target="_blank">
-    <img src="https://trendshift.io/api/badge/repositories/14130" alt="Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
-  </a>
-</p>
+**Creator:** [Sanjay Darnal](https://github.com/ccbarconsultancy-collab)
+
 <p align="center">
   <a href="https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0/releases/latest">
     <img src="https://img.shields.io/github/v/release/ccbarconsultancy-collab/Zesty-OS-2.0?style=flat-square&logo=github&color=blue" alt="Release"/>
@@ -15,69 +12,64 @@
   <a href="https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0/stargazers">
     <img src="https://img.shields.io/github/stars/ccbarconsultancy-collab/Zesty-OS-2.0?style=flat-square&logo=github" alt="Stars"/>
   </a>
-  <a href="https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0/releases/latest">
-    <img src="https://img.shields.io/github/downloads/ccbarconsultancy-collab/Zesty-OS-2.0/total?style=flat-square&logo=github&color=52c41a1&maxAge=86400" alt="Download"/>
-  </a>
-  <a href="https://gitee.com/huang-jun-sen/py-xiaozhi">
-    <img src="https://img.shields.io/badge/Gitee-FF5722?style=flat-square&logo=gitee" alt="Gitee"/>
-  </a>
-  <a href="https://huangjunsen0406.github.io/py-xiaozhi/guide/00_%E6%96%87%E6%A1%A3%E7%9B%AE%E5%BD%95.html">
-    <img alt="Usage Docs" src="https://img.shields.io/badge/Usage Docs-View-blue?labelColor=2d2d2d" />
-  </a>
-  <a href="https://atomgit.com/huangjunsen0406/py-xiaozhi">
-    <img src="./assets/AtomGit.svg" alt="AtomGit" height="20"/>
-  </a>
 </p>
 
 English | [简体中文](README.zh.md)
 
-## ❤️ Sponsors
-
-> [Want to appear here?](mailto:95134130@qq.com)
-
-<details open>
-<summary>Click to collapse</summary>
-
-[**GitDo.net**](https://gitdo.net/)
-
-Thanks to GitDo.net for sponsoring this project! GitDo.net is an AI API aggregation platform — one API Key for **Claude, Gemini, GPT** and other major models. Direct connection, no proxy needed, stable and efficient. An ideal choice for enterprise-grade AI programming. **[Visit GitDo.net](https://gitdo.net/)**
-
----
-
-|                                                                     |                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [**Token能量站**](https://factory.pub/register?aff=3rXc)            | Thanks to Token能量站 (Factory.pub) for sponsoring this project! Providing API relay for **GPT, Grok, Claude** and other major models — stable, reliable, and affordable. **[Register here](https://factory.pub/register?aff=3rXc)**        |
-| [**良心AI**](https://www.openailaozu.com/register?aff=5Y7JEH5HBTXS) | Thanks to 良心AI for sponsoring this project! Providing API relay for **GPT, Claude, Gemini** and other major models — direct connection, stable and high-speed. **[Register here](https://www.openailaozu.com/register?aff=5Y7JEH5HBTXS)** |
-
-</details>
-
 ## About Zesty OS 2.0
 
-**Zesty OS 2.0** is a lightweight, cross-platform multi-modal AI interaction framework built on Python's async architecture, with a custom HTML neural-core front-end. It supports real-time voice streaming, vision-language tasks, and IoT device control. Deployable across Windows, macOS, Linux desktops, and ARM embedded platforms (Raspberry Pi, Horizon Robotics RDK, Jetson Nano), it bridges the gap between Large Language Models and physical hardware — out of the box.
+**Zesty OS 2.0** is a cross-platform AI voice assistant built by **Sanjay Darnal**, combining a custom HTML neural-core front-end with the proven [py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi) async backend engine. It delivers real-time voice streaming, wake-word detection, MCP tool integration, and low-latency human–AI interaction on Windows, macOS, and Linux.
 
-> Built on the [py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi) core engine. Evolved from the [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) firmware project.
-
-## Related Projects
-
-- [xiaozhi-desktop](https://xiaozhi.junsen.online) — Electron desktop client with AEC echo cancellation, Live2D, floating window modes, and Windows / macOS installers
+> Built on the [py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi) core engine by Saoji (Junsen Huang). Evolved from the [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) firmware project.
 
 ## Demo
 
-- [Bilibili Demo Video](https://www.bilibili.com/video/BV1HmPjeSED2/#reply255921347937)
-
-![Image](./documents/docs/guide/images/系统界面.png)
+![Zesty OS 2.0 UI](assets/preview.png)
 
 ## Zesty OS 2.0 Key Features
 
-- **Real-time Voice AI** — Opus codec with auto frame detection (RFC 6716 TOC parsing), async streaming, sub-20ms latency
-- **Multi-modal Vision** — Camera capture + vision-language model integration for image understanding and scene perception
-- **MCP Tool Ecosystem** — Modular JSON-RPC 2.0 tool server: music player, camera, screenshot, app management, weather, volume control
-- **Cross-platform Deployment** — Windows 10+ / macOS 10.15+ / Linux (x86_64 & ARM), optimized for Raspberry Pi and edge boards
-- **Multiple UI Modes** — PySide6 + QML GUI / CLI / GPIO, adapting to desktop, headless server, and embedded environments
-- **Offline Wake Word** — Sherpa-ONNX based on-device keyword spotting with custom wake word support
-- **IoT & Embodied AI Ready** — GPIO interface for robotics control, hardware actuation, and sensor integration
-- **WebSocket / MQTT** — Dual protocol communication with WSS/TLS encrypted transmission and auto-reconnection
-- **Plugin Architecture** — Event-driven async design, clean dependency injection, extensible plugin system
+- **Custom HTML/JS Responsive UI** — Modern neural-core wrapper (`assets/index.html`) embedded via PySide6 WebEngine + QWebChannel bridge
+- **High-Performance UI-to-Backend Bridge** — Real-time voice streaming, session control, and state sync between the HTML front-end and Python core
+- **Real-Time Audio Intelligence** — On-device wake-word detection (Sherpa-ONNX), Opus encoding, STT/TTS pipeline, and low-latency interaction
+- **Seamless py-xiaozhi Integration** — Full access to WebSocket/MQTT protocols, MCP tools, activation, settings, and plugin architecture without replacing the core engine
+
+### Core Engine Capabilities (py-xiaozhi)
+
+- **Real-time Voice AI** — Opus codec with async streaming, sub-20ms latency
+- **Multi-modal Vision** — Camera capture + vision-language model integration
+- **MCP Tool Ecosystem** — Music, camera, screenshot, app management, weather, volume control
+- **Cross-platform Deployment** — Windows 10+ / macOS 10.15+ / Linux (x86_64 & ARM)
+- **Offline Wake Word** — Sherpa-ONNX on-device keyword spotting with custom wake words
+- **WebSocket / MQTT** — Dual protocol communication with WSS/TLS and auto-reconnection
+- **Plugin Architecture** — Event-driven async design with dependency injection
+
+## Quick Start (Installation)
+
+```bash
+# Clone repository
+git clone https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0.git
+cd Zesty-OS-2.0
+
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+# Install with GUI dependencies (PySide6 + qasync)
+pip install -e ".[gui]"
+
+# Launch Zesty OS 2.0 with custom HTML UI
+python main.py --mode gui
+# or
+zesty --mode gui
+```
+
+Optional flags:
+
+```bash
+python main.py --skip-activation --mode gui   # Skip device activation (local dev)
+python main.py --protocol websocket           # Default protocol
+python main.py --protocol mqtt                # MQTT protocol
+```
 
 ## System Requirements
 
@@ -97,15 +89,13 @@ Thanks to GitDo.net for sponsoring this project! GitDo.net is an AI API aggregat
 
 ### Optional Feature Requirements
 
-- **Voice Wake-up**: Requires downloading Sherpa-ONNX speech recognition models
+- **Voice Wake-up**: Requires Sherpa-ONNX speech recognition models (bundled under `models/`)
 - **Camera Features**: Requires camera device and OpenCV support
 
 ## Read This First
 
-- Carefully read [项目文档](https://huangjunsen0406.github.io/py-xiaozhi/) for startup tutorials and file descriptions
-- The main branch has the latest code; manually reinstall pip dependencies after each update to ensure you have new dependencies
-
-[Zero to Xiaozhi Client (Video Tutorial)](https://www.bilibili.com/video/BV1dWQhYEEmq/?vd_source=2065ec11f7577e7107a55bbdc3d12fce)
+- The main branch has the latest code; reinstall pip dependencies after each update
+- Upstream docs: [py-xiaozhi documentation](https://huangjunsen0406.github.io/py-xiaozhi/)
 
 ## Technical Architecture
 
@@ -144,31 +134,20 @@ Thanks to GitDo.net for sponsoring this project! GitDo.net is an AI API aggregat
 ```
 Zesty-OS-2.0/
 ├── main.py                     # Application entry point
+├── assets/
+│   ├── index.html              # Custom HTML neural-core UI (Zesty OS 2.0)
+│   └── preview.png             # UI preview screenshot
 ├── src/
 │   ├── activation/             # Device activation
 │   ├── audio_codecs/           # Audio codecs
 │   ├── audio_processing/       # Wake word detection
 │   ├── bootstrap/              # Application bootstrap & dependency injection
-│   ├── constants/              # Constants
-│   ├── core/                   # Core infrastructure (event bus, state management, task management, etc.)
-│   ├── logging/                # Logging subsystem
+│   ├── core/                   # Event bus, state management, protocol manager
 │   ├── mcp/                    # MCP tool system
-│   │   ├── mcp_server.py       # MCP server
-│   │   └── tools/              # Tool modules (music/camera/screenshot/app/weather/volume)
-│   ├── plugins/                # Plugin system (audio, UI, MCP, wake word, shortcuts)
-│   ├── protocols/              # Communication protocols (WebSocket/MQTT)
-│   ├── ui/                     # User interface
-│   │   ├── gui/                # PySide6 + QML graphical interface
-│   │   ├── cli/                # Command line interface
-│   │   └── gpio/               # GPIO embedded interface
-│   └── utils/                  # Utility functions
-├── libs/                       # Third-party native libraries
-│   ├── libopus/                # Opus audio codec library
-│   └── webrtc_apm/             # WebRTC audio processing module
-├── models/                     # Wake word models
-├── assets/                     # Static resources
-├── scripts/                    # Auxiliary scripts
-├── documents/                  # VitePress documentation site
+│   ├── plugins/                # Audio, UI, MCP, wake word, shortcuts
+│   ├── protocols/              # WebSocket / MQTT
+│   └── ui/gui/                 # PySide6 + QML + HtmlUiBridge
+├── models/                     # Wake word ONNX models
 ├── pyproject.toml              # Project configuration
 └── build.json                  # Build configuration
 ```
@@ -195,7 +174,8 @@ uv sync --extra gui --group dev
 ./format_code.sh
 
 # Run program - GUI mode (default; requires gui extra)
-python main.py
+python main.py --mode gui
+# or: zesty --mode gui
 
 # Run program - CLI mode (base install is enough)
 python main.py --mode cli
@@ -239,7 +219,7 @@ python main.py --protocol mqtt       # MQTT protocol
 
 - Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for the repository workflow
 - Chinese version: [CONTRIBUTING_ZH.md](./CONTRIBUTING_ZH.md)
-- Detailed docs: [Contribution Guide](https://huangjunsen0406.github.io/py-xiaozhi/en/contributing)
+- Upstream contribution guide: [py-xiaozhi contributing](https://huangjunsen0406.github.io/py-xiaozhi/en/contributing)
 
 ## Maintainer Workflow
 
@@ -251,21 +231,10 @@ python main.py --protocol mqtt       # MQTT protocol
 
 ## Community and Support
 
-### Thanks to the Following Open Source Contributors
->
-> In no particular order
+### Credits
 
-[Xiaoxia](https://github.com/78)
-[zhh827](https://github.com/zhh827)
-[SmartArduino-Li Honggang](https://github.com/SmartArduino)
-[HonestQiao](https://github.com/HonestQiao)
-[vonweller](https://github.com/vonweller)
-[Sun Weigong](https://space.bilibili.com/416954647)
-[isamu2025](https://github.com/isamu2025)
-[Rain120](https://github.com/Rain120)
-[kejily](https://github.com/kejily)
-[Radio bilibili Jun](https://space.bilibili.com/119751)
-[Cyber Intelligence](https://shop115087494.m.taobao.com/?refer=https%3A%2F%2Fm.tb.cn%2F&ut_sk=1.WMelxbgDQWkDAJ1Rq9Pn7DCD_21380790_1757337352472.Copy.shop&suid=0E25E948-651D-46E0-8E89-5C8CB03B4F56&shop_navi=shopindex&sourceType=shop&shareUniqueId=33038752403&un=d22c5ceda82844ab8bd7bab98ffeb263&share_crt_v=1&un_site=0&spm=a2159r.13376460.0.0&sp_tk=dkRKUjRKUWo2ZHY%3D&bc_fl_src=share-1041250486811064-2-1&cpp=1&shareurl=true&short_name=h.SaBKVHytsCKIPNS&bxsign=scdGtSe264e_qkFQBh0rXCkF-Mrb_s6t35EnpVBBU5dsrd-J24c-_rn_PhJiXRk0hg2hjGoAm0L7j2UQg27OIH_6gZkbhKDyLziD2cy4pDf8sC3KmqrF55TXP3USZaPTw_-&app=weixin)
+- **Zesty OS 2.0** — Sanjay Darnal (custom HTML UI, integration, branding)
+- **py-xiaozhi core engine** — [Saoji / Junsen Huang](https://github.com/huangjunsen0406/py-xiaozhi)
 
 ## Project Statistics
 
