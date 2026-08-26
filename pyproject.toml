@@ -1,12 +1,12 @@
 [project]
-name = "py-xiaozhi"
-version = "1.0.0"
-description = "小智 AI 客户端 - 跨平台语音助手"
+name = "zesty-os-2-0"
+version = "2.0.0"
+description = "Zesty OS 2.0 - cross-platform AI voice assistant with custom HTML front-end"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Junsen", email = "junsen@example.com" }]
-keywords = ["ai", "voice-assistant", "xiaozhi"]
+authors = [{ name = "ccbarconsultancy-collab", email = "ccbarconsultancy@example.com" }]
+keywords = ["ai", "voice-assistant", "zesty-os", "xiaozhi"]
 
 dependencies = [
     # 音频处理
@@ -96,11 +96,11 @@ tui = [
 # 代码在 import 到 picamera2 时自动启用 CSI 后端（CAMERA.backend=auto/picamera2）。
 
 [project.scripts]
-xiaozhi = "main:main"
+zesty = "main:main"
 
 [project.urls]
-Homepage = "https://github.com/huangjunsen0406/py-xiaozhi"
-Repository = "https://github.com/huangjunsen0406/py-xiaozhi"
+Homepage = "https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0"
+Repository = "https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0"
 
 # ============================================================
 # 依赖组 (uv/pip 通用)

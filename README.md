@@ -1,4 +1,4 @@
-# py-xiaozhi
+# Zesty OS 2.0
 
 <p align="center" class="trendshift">
   <a href="https://trendshift.io/repositories/14130" target="_blank">
@@ -6,17 +6,17 @@
   </a>
 </p>
 <p align="center">
-  <a href="https://github.com/huangjunsen0406/py-xiaozhi/releases/latest">
-    <img src="https://img.shields.io/github/v/release/huangjunsen0406/py-xiaozhi?style=flat-square&logo=github&color=blue" alt="Release"/>
+  <a href="https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0/releases/latest">
+    <img src="https://img.shields.io/github/v/release/ccbarconsultancy-collab/Zesty-OS-2.0?style=flat-square&logo=github&color=blue" alt="Release"/>
   </a>
   <a href="https://opensource.org/licenses/MIT">
     <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License: MIT"/>
   </a>
-  <a href="https://github.com/huangjunsen0406/py-xiaozhi/stargazers">
-    <img src="https://img.shields.io/github/stars/huangjunsen0406/py-xiaozhi?style=flat-square&logo=github" alt="Stars"/>
+  <a href="https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0/stargazers">
+    <img src="https://img.shields.io/github/stars/ccbarconsultancy-collab/Zesty-OS-2.0?style=flat-square&logo=github" alt="Stars"/>
   </a>
-  <a href="https://github.com/huangjunsen0406/py-xiaozhi/releases/latest">
-    <img src="https://img.shields.io/github/downloads/huangjunsen0406/py-xiaozhi/total?style=flat-square&logo=github&color=52c41a1&maxAge=86400" alt="Download"/>
+  <a href="https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0/releases/latest">
+    <img src="https://img.shields.io/github/downloads/ccbarconsultancy-collab/Zesty-OS-2.0/total?style=flat-square&logo=github&color=52c41a1&maxAge=86400" alt="Download"/>
   </a>
   <a href="https://gitee.com/huang-jun-sen/py-xiaozhi">
     <img src="https://img.shields.io/badge/Gitee-FF5722?style=flat-square&logo=gitee" alt="Gitee"/>
@@ -51,11 +51,11 @@ Thanks to GitDo.net for sponsoring this project! GitDo.net is an AI API aggregat
 
 </details>
 
-## About
+## About Zesty OS 2.0
 
-py-xiaozhi is a lightweight, cross-platform multi-modal AI interaction framework built on Python's async architecture. It supports real-time voice streaming, vision-language tasks, and IoT device control. Deployable across Windows, macOS, Linux desktops, and ARM embedded platforms (Raspberry Pi, Horizon Robotics RDK, Jetson Nano), it bridges the gap between Large Language Models and physical hardware — out of the box.
+**Zesty OS 2.0** is a lightweight, cross-platform multi-modal AI interaction framework built on Python's async architecture, with a custom HTML neural-core front-end. It supports real-time voice streaming, vision-language tasks, and IoT device control. Deployable across Windows, macOS, Linux desktops, and ARM embedded platforms (Raspberry Pi, Horizon Robotics RDK, Jetson Nano), it bridges the gap between Large Language Models and physical hardware — out of the box.
 
-> Evolved from the [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) firmware project. Officially adopted by [D-Robotics (xiaozhi-in-rdk)](https://github.com/D-Robotics/xiaozhi-in-rdk) as an upstream dependency.
+> Built on the [py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi) core engine. Evolved from the [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) firmware project.
 
 ## Related Projects
 
@@ -67,7 +67,7 @@ py-xiaozhi is a lightweight, cross-platform multi-modal AI interaction framework
 
 ![Image](./documents/docs/guide/images/系统界面.png)
 
-## Key Features
+## Zesty OS 2.0 Key Features
 
 - **Real-time Voice AI** — Opus codec with auto frame detection (RFC 6716 TOC parsing), async streaming, sub-20ms latency
 - **Multi-modal Vision** — Camera capture + vision-language model integration for image understanding and scene perception
@@ -137,12 +137,12 @@ py-xiaozhi is a lightweight, cross-platform multi-modal AI interaction framework
 - **Access Control**: Tool permission management, API access control
 - **Error Isolation**: Exception isolation, fault recovery, graceful degradation
 
-## Development Guide
+## Zesty OS 2.0 Development Guide
 
 ### Project Structure
 
 ```
-py-xiaozhi/
+Zesty-OS-2.0/
 ├── main.py                     # Application entry point
 ├── src/
 │   ├── activation/             # Device activation
@@ -177,8 +177,8 @@ py-xiaozhi/
 
 ```bash
 # Clone project
-git clone https://github.com/huangjunsen0406/py-xiaozhi.git
-cd py-xiaozhi
+git clone https://github.com/ccbarconsultancy-collab/Zesty-OS-2.0.git
+cd Zesty-OS-2.0
 
 # Base install (CLI / GPIO mode)
 uv sync                                    # Recommended (uv users)
@@ -269,7 +269,7 @@ python main.py --protocol mqtt       # MQTT protocol
 
 ## Project Statistics
 
-[![Star History Chart](https://api.star-history.com/svg?repos=huangjunsen0406/py-xiaozhi&type=Date)](https://www.star-history.com/#huangjunsen0406/py-xiaozhi&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=ccbarconsultancy-collab/Zesty-OS-2.0&type=Date)](https://www.star-history.com/#ccbarconsultancy-collab/Zesty-OS-2.0&Date)
 
 ## License
 
