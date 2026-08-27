@@ -118,8 +118,8 @@ class WakeWordDetector:
         self._num_threads = 4
         self._provider = "cpu"
         self._max_active_paths = 2
-        self._keywords_score = 1.8
-        self._keywords_threshold = 0.2
+        self._keywords_score = 1.0
+        self._keywords_threshold = 0.05
         self._num_trailing_blanks = 1
 
         self._wake_word_lang = "zh"
@@ -127,6 +127,10 @@ class WakeWordDetector:
         self._logged_first_audio_frame = False
         self._rms_frame_counter = 0
         self._rms_log_interval = 50
+        self._speech_rms_threshold = 0.006
+        self._speech_active = False
+        self._last_mic_active_print = 0.0
+        self._mic_active_print_interval = 2.0
 
     async def initialize(self, model_path: Optional[str] = None) -> bool:
         try:
@@ -184,20 +188,22 @@ class WakeWordDetector:
         self._num_threads = config.get_config("WAKE_WORD_OPTIONS.NUM_THREADS", 4)
         self._provider = config.get_config("WAKE_WORD_OPTIONS.PROVIDER", "cpu")
         self._max_active_paths = config.get_config("WAKE_WORD_OPTIONS.MAX_ACTIVE_PATHS", 2)
-        self._keywords_score = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_SCORE", 1.4)
-        self._keywords_threshold = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD", 0.12)
+        self._keywords_score = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_SCORE", 1.0)
+        self._keywords_threshold = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD", 0.05)
         self._num_trailing_blanks = config.get_config("WAKE_WORD_OPTIONS.NUM_TRAILING_BLANKS", 1)
 
         # Validate
         if not 0.05 <= self._keywords_threshold <= 1.0:
-            logger.warning(f"关键词阈值 {self._keywords_threshold} 超出范围，重置为0.12")
-            self._keywords_threshold = 0.12
+            logger.warning(f"关键词阈值 {self._keywords_threshold} 超出范围，重置为0.05")
+            self._keywords_threshold = 0.05
 
         if not 0.1 <= self._keywords_score <= 10.0:
-            logger.warning(f"关键词分数 {self._keywords_score} 超出范围，重置为1.4")
-            self._keywords_score = 1.4
+            logger.warning(f"关键词分数 {self._keywords_score} 超出范围，重置为1.0")
+            self._keywords_score = 1.0
 
-        logger.debug(f"KWS配置: 阈值={self._keywords_threshold}, 分数={self._keywords_score}")
+        logger.info(
+            f"KWS配置: 阈值={self._keywords_threshold}, 分数={self._keywords_score} (max sensitivity)"
+        )
 
     def _load_model(self) -> bool:
         """Load sherpa-onnx KeywordSpotter model."""
@@ -511,10 +517,12 @@ class WakeWordDetector:
 
         audio_data = np.ascontiguousarray(audio_data, dtype=np.float32).reshape(-1)
 
+        rms = float(np.sqrt(np.mean(np.square(audio_data))))
+        peak = float(np.max(np.abs(audio_data)))
+        self._log_speech_activity(rms, peak)
+
         self._rms_frame_counter += 1
         if self._rms_frame_counter % self._rms_log_interval == 0:
-            rms = float(np.sqrt(np.mean(np.square(audio_data))))
-            peak = float(np.max(np.abs(audio_data)))
             logger.debug(
                 "KWS mic level: RMS=%.5f peak=%.5f frames=%d paused=%s running=%s",
                 rms,
@@ -538,6 +546,9 @@ class WakeWordDetector:
                 if self._keyword_spotter.is_ready(self._stream):
                     self._keyword_spotter.decode_stream(self._stream)
                     result = self._keyword_spotter.get_result(self._stream)
+                    tokens = self._keyword_spotter.tokens(self._stream)
+                    timestamps = self._keyword_spotter.timestamps(self._stream)
+                    self._log_wake_candidate(result, tokens, timestamps)
 
                     if result:
                         detected_result = result
@@ -547,6 +558,55 @@ class WakeWordDetector:
 
         if detected_result is not None:
             await self._handle_detection(detected_result)
+
+    def _log_speech_activity(self, rms: float, peak: float) -> None:
+        """CLI notice when speech-level audio is fed into Sherpa-ONNX."""
+        is_speech = rms >= self._speech_rms_threshold or peak >= self._speech_rms_threshold * 3
+        now = time.time()
+
+        if is_speech:
+            if not self._speech_active or (
+                now - self._last_mic_active_print >= self._mic_active_print_interval
+            ):
+                print(
+                    f"[MIC AUDIO ACTIVE] Hearing speech/audio input... "
+                    f"(RMS={rms:.5f} peak={peak:.5f})",
+                    flush=True,
+                )
+                self._last_mic_active_print = now
+            self._speech_active = True
+        elif self._speech_active and rms < self._speech_rms_threshold * 0.5:
+            self._speech_active = False
+
+    def _log_wake_candidate(
+        self, result: str, tokens: list, timestamps: list
+    ) -> None:
+        """Log every KWS decode evaluation, including sub-threshold candidates."""
+        passed = bool(result)
+        if passed:
+            match_score = 1.0
+        elif tokens:
+            match_score = min(0.99, 0.1 + 0.15 * len(tokens))
+        else:
+            match_score = 0.0
+
+        print(
+            f"[WAKE CANDIDATE] keyword={result or '(none)'} "
+            f"match_score={match_score:.3f} "
+            f"threshold={self._keywords_threshold:.3f} "
+            f"score_boost={self._keywords_score:.2f} "
+            f"passed={passed} "
+            f"tokens={tokens} "
+            f"timestamps={timestamps}",
+            flush=True,
+        )
+        logger.debug(
+            "KWS candidate: keyword=%r score=%.3f passed=%s tokens=%s",
+            result,
+            match_score,
+            passed,
+            tokens,
+        )
 
     async def _handle_detection(self, result):
         # Anti-repeat check

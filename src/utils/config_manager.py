@@ -84,8 +84,8 @@ class ConfigManager:
             "NUM_THREADS": 4,
             "PROVIDER": "cpu",
             "MAX_ACTIVE_PATHS": 2,
-            "KEYWORDS_SCORE": 1.4,
-            "KEYWORDS_THRESHOLD": 0.12,
+            "KEYWORDS_SCORE": 1.0,
+            "KEYWORDS_THRESHOLD": 0.05,
             "NUM_TRAILING_BLANKS": 1,
             "WAKE_WORD": "Hey Jesty",
             "WAKE_WORD_LANG": "en",
@@ -337,8 +337,8 @@ class ConfigManager:
             wwo["WAKE_WORD"] = "Hey Jesty"
             wwo["WAKE_WORD_LANG"] = "en"
             wwo["MODEL_PATH"] = "models/en"
-            wwo["KEYWORDS_THRESHOLD"] = 0.12
-            wwo["KEYWORDS_SCORE"] = 1.4
+            wwo["KEYWORDS_THRESHOLD"] = 0.05
+            wwo["KEYWORDS_SCORE"] = 1.0
             wwo["PHONETIC_ALIASES"] = ["Hey Jesty", "Hey Jistry", "Jesty"]
             ver = 2
 
@@ -419,8 +419,8 @@ class ConfigManager:
             "WAKE_WORD_OPTIONS.WAKE_WORD": "Hey Jesty",
             "WAKE_WORD_OPTIONS.WAKE_WORD_LANG": "en",
             "WAKE_WORD_OPTIONS.MODEL_PATH": "models/en",
-            "WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD": 0.12,
-            "WAKE_WORD_OPTIONS.KEYWORDS_SCORE": 1.4,
+            "WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD": 0.05,
+            "WAKE_WORD_OPTIONS.KEYWORDS_SCORE": 1.0,
             "WAKE_WORD_OPTIONS.PHONETIC_ALIASES": [
                 "Hey Jesty",
                 "Hey Jistry",
