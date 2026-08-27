@@ -51,22 +51,98 @@ TRACK_PAGE_HTML = """<!DOCTYPE html>
     border-radius: 6px; background: rgba(0,243,255,0.06); border: 1px solid rgba(0,243,255,0.2); }
   .ok { color: #00e676; }
   .warn { color: #ff0055; }
+  .pulse-banner {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    padding: 10px 12px; border-radius: 8px;
+    border: 1px solid rgba(0,230,118,0.35); background: rgba(0,40,20,0.35);
+    font-size: 10px; letter-spacing: 0.18em; color: rgba(0,230,118,0.55);
+    transition: all 0.35s ease;
+  }
+  .pulse-banner.active {
+    color: #00e676; border-color: rgba(0,230,118,0.65);
+    box-shadow: 0 0 18px rgba(0,230,118,0.25);
+  }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: rgba(255,0,85,0.8);
+    box-shadow: 0 0 6px rgba(255,0,85,0.5);
+  }
+  .pulse-banner.active .pulse-dot {
+    background: #00e676; box-shadow: 0 0 10px #00e676;
+    animation: pulseGlow 1.4s ease-in-out infinite;
+  }
+  @keyframes pulseGlow {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.25); opacity: 0.65; }
+  }
+  .pulse-btn {
+    width: 100%; margin-top: 12px; padding: 12px 14px;
+    border-radius: 8px; border: 1px solid rgba(0,243,255,0.45);
+    background: rgba(0,243,255,0.08); color: #00f3ff;
+    font-family: inherit; font-size: 10px; letter-spacing: 0.16em;
+    cursor: pointer; text-transform: uppercase;
+  }
+  .pulse-btn:active { transform: scale(0.98); }
 </style>
 </head>
 <body>
 <div class="card">
   <h1>ZESTY PHONE LINK</h1>
-  <p>No app required. Keep this page open to stream GPS and battery telemetry to your Zesty OS HUD.</p>
-  <div id="status" class="status warn">INITIALIZING SENSORS...</div>
+  <p>No app required. Tap below to authorize location, then keep this page open for live telemetry pulses.</p>
+  <div id="pulseBanner" class="pulse-banner">
+    <span class="pulse-dot"></span>
+    <span id="pulseLabel">PULSE STANDBY</span>
+  </div>
+  <div id="status" class="status warn">INITIALIZING TELEMETRY...</div>
+  <button id="pulseBtn" class="pulse-btn" type="button">⚡ ENABLE LOCATION PULSE</button>
 </div>
 <script>
 (function () {
   const statusEl = document.getElementById('status');
+  const pulseBanner = document.getElementById('pulseBanner');
+  const pulseLabel = document.getElementById('pulseLabel');
+  const pulseBtn = document.getElementById('pulseBtn');
   let pulseTimer = null;
+  let locationArmed = false;
+  let lastCoords = { latitude: 0, longitude: 0 };
 
   function setStatus(text, ok) {
     statusEl.textContent = text;
     statusEl.className = 'status ' + (ok ? 'ok' : 'warn');
+  }
+
+  function setPulseConnected(active, label) {
+    pulseBanner.classList.toggle('active', !!active);
+    pulseLabel.textContent = label || (active ? 'PULSE CONNECTED' : 'PULSE STANDBY');
+  }
+
+  function syncEndpoints() {
+    const origin = window.location.origin || '';
+    const paths = ['/api/phone/sync'];
+    if (origin && origin !== 'null') paths.push(origin + '/api/phone/sync');
+    return [...new Set(paths)];
+  }
+
+  async function postSync(payload) {
+    const endpoints = syncEndpoints();
+    let lastError = null;
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          cache: 'no-store'
+        });
+        if (!res.ok) {
+          lastError = new Error('HTTP ' + res.status + ' @ ' + url);
+          continue;
+        }
+        return await res.json();
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error('Sync endpoint unreachable');
   }
 
   async function readBattery() {
@@ -82,7 +158,7 @@ TRACK_PAGE_HTML = """<!DOCTYPE html>
     }
   }
 
-  function readPosition() {
+  function readPosition(options) {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) return reject(new Error('Geolocation unavailable'));
       navigator.geolocation.getCurrentPosition(
@@ -91,39 +167,73 @@ TRACK_PAGE_HTML = """<!DOCTYPE html>
           longitude: pos.coords.longitude
         }),
         (err) => reject(err),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+        options || { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
       );
     });
   }
 
-  async function pulse() {
+  async function buildPayload(gpsStatus) {
+    const battery = await readBattery();
+    const payload = {
+      ...battery,
+      latitude: lastCoords.latitude,
+      longitude: lastCoords.longitude,
+      gps_status: gpsStatus || (locationArmed ? 'fixing' : 'pending'),
+      timestamp: new Date().toISOString()
+    };
+    return { battery, payload };
+  }
+
+  async function pulse(gpsStatus) {
     try {
-      const [battery, position] = await Promise.all([readBattery(), readPosition()]);
-      const payload = {
-        ...battery,
-        ...position,
-        timestamp: new Date().toISOString()
-      };
-      const res = await fetch('/api/phone/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      setStatus(
-        'LINKED // ' + (data.location_name || 'GPS LOCK') +
-        ' // BAT ' + (battery.battery_level >= 0 ? battery.battery_level + '%' : 'N/A'),
-        true
-      );
+      const { battery, payload } = await buildPayload(gpsStatus);
+      const data = await postSync(payload);
+      setPulseConnected(true, 'PULSE CONNECTED');
+      const batText = battery.battery_level >= 0 ? battery.battery_level + '%' : 'N/A';
+      const locText = data.location_name || (payload.latitude && payload.longitude
+        ? 'GPS LOCK'
+        : 'AWAITING GPS FIX');
+      setStatus('LINKED // ' + locText + ' // BAT ' + batText, true);
+      return true;
     } catch (err) {
-      setStatus('SYNC FAILED: ' + (err.message || err), false);
+      setPulseConnected(false, 'PULSE STANDBY');
+      setStatus('SYNC FAILED: ' + (err && err.message ? err.message : err), false);
+      return false;
     }
   }
 
-  pulse();
-  pulseTimer = setInterval(pulse, 30000);
-  window.addEventListener('beforeunload', () => clearInterval(pulseTimer));
+  async function tryGpsUpgrade() {
+    try {
+      const position = await readPosition();
+      lastCoords = position;
+      await pulse('locked');
+    } catch (err) {
+      setStatus('GPS PENDING // ' + (err.message || err) + ' — pulse still active', true);
+      setPulseConnected(true, 'PULSE CONNECTED');
+    }
+  }
+
+  async function armLocationPulse() {
+    locationArmed = true;
+    pulseBtn.disabled = true;
+    pulseBtn.textContent = '⚡ PULSE ARMED';
+    await pulse('arming');
+    await tryGpsUpgrade();
+    if (!pulseTimer) pulseTimer = setInterval(() => pulse('interval'), 30000);
+  }
+
+  pulseBtn.addEventListener('click', armLocationPulse);
+
+  // Immediate heartbeat on load — marks device ONLINE before iOS grants GPS.
+  (async function bootPulse() {
+    setStatus('SENDING IMMEDIATE PULSE...', false);
+    const ok = await pulse('boot');
+    if (ok) setStatus('BOOT PULSE SENT // TAP BUTTON FOR GPS', true);
+  })();
+
+  window.addEventListener('beforeunload', () => {
+    if (pulseTimer) clearInterval(pulseTimer);
+  });
 })();
 </script>
 </body>
@@ -338,13 +448,17 @@ class PhoneTrackerService:
         try:
             battery_level = int(payload.get("battery_level", -1))
             is_charging = bool(payload.get("is_charging", False))
-            latitude = float(payload["latitude"])
-            longitude = float(payload["longitude"])
+            latitude = float(payload.get("latitude", 0.0))
+            longitude = float(payload.get("longitude", 0.0))
             timestamp = str(payload.get("timestamp") or _utc_now_iso())
-        except (KeyError, TypeError, ValueError):
+            gps_status = str(payload.get("gps_status", "unknown"))
+        except (TypeError, ValueError):
             return web.json_response({"error": "invalid payload"}, status=400)
 
-        location_name = await reverse_geocode(latitude, longitude)
+        if latitude == 0.0 and longitude == 0.0:
+            location_name = "Awaiting GPS fix"
+        else:
+            location_name = await reverse_geocode(latitude, longitude)
         telemetry = self.state.update(
             battery_level=battery_level,
             is_charging=is_charging,
@@ -352,6 +466,15 @@ class PhoneTrackerService:
             longitude=longitude,
             timestamp=timestamp,
             location_name=location_name,
+        )
+
+        logger.info(
+            "[PHONE SYNC SUCCESS] bat=%s%% charging=%s gps=%s lat=%.5f lon=%.5f",
+            battery_level,
+            is_charging,
+            gps_status,
+            latitude,
+            longitude,
         )
 
         metrics = telemetry.to_dict()
