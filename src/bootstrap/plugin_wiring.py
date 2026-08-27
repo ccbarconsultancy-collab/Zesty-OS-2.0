@@ -86,9 +86,23 @@ async def setup_plugins(
 
     register_cleanup_resources(container)
 
+    await _start_phone_tracker(container)
+
     # 设置音频直连通道（TTS 音频不经过 EventBus，减少延迟）
     if not audio_plugin.failed:
         container.protocol.set_audio_handler(audio_plugin.on_incoming_audio)
+
+
+async def _start_phone_tracker(container: "ServiceContainer") -> None:
+    """Start the app-less phone tracker HTTP receiver."""
+    from src.mcp.tools.phone_tracker import start_phone_tracker, stop_phone_tracker
+
+    try:
+        container.phone_tracker = await start_phone_tracker(container.event_bus)
+        container.resource_pool.register("phone_tracker", stop_phone_tracker)
+    except Exception as e:
+        logger.error("Phone tracker failed to start: %s", e, exc_info=True)
+        container.phone_tracker = None
 
 
 def register_cleanup_resources(container: "ServiceContainer") -> None:

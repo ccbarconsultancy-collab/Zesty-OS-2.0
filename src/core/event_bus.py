@@ -73,6 +73,10 @@ class Events:
     # MCP 工具暴露变更后：断开并重连协议，使服务端重新 tools/list
     PROTOCOL_RECONNECT_REQUEST = "protocol_reconnect_request"
 
+    # Phone tracker telemetry (payload: dict)
+    PHONE_METRICS_UPDATED = "phone_metrics_updated"
+    PHONE_MAP_SHOW = "phone_map_show"
+
 
 # 已知事件名集合：拼写错误时在 on/emit 打 warning（debug 友好）
 _KNOWN_EVENTS: frozenset[str] = frozenset(

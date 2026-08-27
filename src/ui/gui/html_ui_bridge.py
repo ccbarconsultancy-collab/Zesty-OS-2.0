@@ -45,6 +45,8 @@ class HtmlUiBridge(QObject):
     autoMode = Signal(bool)
     statusText = Signal(str)
     inputLevel = Signal(float)
+    phoneMetrics = Signal(str)
+    showPhoneMap = Signal()
 
     def __init__(self, event_bridge: "EventBridge", parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -148,3 +150,11 @@ class HtmlUiBridge(QObject):
     def notify_input_level(self, level: float) -> None:
         """Push normalized mic RMS (0–1) for mesh/waveform at IDLE."""
         self.inputLevel.emit(max(0.0, min(1.0, float(level))))
+
+    def notify_phone_metrics(self, payload: dict) -> None:
+        import json
+
+        self.phoneMetrics.emit(json.dumps(payload or {}))
+
+    def notify_show_phone_map(self) -> None:
+        self.showPhoneMap.emit()

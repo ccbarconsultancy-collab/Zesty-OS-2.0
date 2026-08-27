@@ -52,6 +52,7 @@ class ServiceContainer:
         # 容器持有的跨插件共享服务（启动时 bind，关闭时 unbind）
         self.mcp_server = None
         self.music_player = None
+        self.phone_tracker = None
 
         # 会话控制（听/说/打断/TTS 回环）
         self.session = ConversationSession(

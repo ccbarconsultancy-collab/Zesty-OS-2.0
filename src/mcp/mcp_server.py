@@ -130,12 +130,14 @@ class McpServer:
             register_music_tools(self.add_tool, music_player)
 
         from src.mcp.tools.app import register_app_tools
+        from src.mcp.tools.phone_tracker import register_phone_tools
         from src.mcp.tools.volume import register_volume_tools
         from src.mcp.tools.weather import register_weather_tools
 
         register_volume_tools(self.add_tool, volume_controller)
         register_app_tools(self.add_tool)
         register_weather_tools(self.add_tool)
+        register_phone_tools(self.add_tool)
 
         # 外挂：用户目录插件包（自带 lib/），失败隔离
         try:

@@ -69,10 +69,19 @@ class GuiViewManager(QObject):
             except (TypeError, ValueError):
                 pass
 
+        async def on_phone_metrics_updated(data) -> None:
+            if isinstance(data, dict):
+                self._html_ui_bridge.notify_phone_metrics(data)
+
+        async def on_phone_map_show(_=None) -> None:
+            self._html_ui_bridge.notify_show_phone_map()
+
         self._event_bus.on(Events.PROTOCOL_CONNECTED, on_protocol_connected)
         self._event_bus.on(Events.PROTOCOL_DISCONNECTED, on_protocol_disconnected)
         self._event_bus.on(Events.NETWORK_ERROR, on_network_error)
         self._event_bus.on(Events.MIC_INPUT_LEVEL, on_mic_input_level)
+        self._event_bus.on(Events.PHONE_METRICS_UPDATED, on_phone_metrics_updated)
+        self._event_bus.on(Events.PHONE_MAP_SHOW, on_phone_map_show)
 
     async def start(self, mode: str = "gui"):
         if mode == "cli":

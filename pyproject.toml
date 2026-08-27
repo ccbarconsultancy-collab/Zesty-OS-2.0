@@ -40,6 +40,8 @@ dependencies = [
     "lunar_python>=1.3.0",
     # 剪贴板
     "pyperclip>=1.8.0",
+    # Phone tracker QR pairing
+    "qrcode>=7.4.2",
     # 快捷键 (跨平台基础)
     "pynput>=1.7.6",
     # ============================================================

@@ -160,7 +160,253 @@
   @keyframes scanLine { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
   .laser-scanner { position: absolute; left: 0; width: 100%; height: 2px; background: var(--cyan); box-shadow: 0 0 10px 2px var(--cyan); display: none; z-index: 10; }
   .scanning .laser-scanner { display: block; animation: scanLine 1.5s linear infinite; }
+
+  /* ==================================================
+     PHONE TRACKER HUD
+     ================================================== */
+  :root {
+    --magenta: #ff0055;
+  }
+
+  .phone-hud-strip {
+    position: absolute;
+    top: 78px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 16;
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+
+  .phone-battery-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border: 1px solid rgba(0, 243, 255, 0.25);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.45);
+    min-width: 140px;
+  }
+
+  .phone-battery-bar {
+    width: 72px;
+    height: 8px;
+    border: 1px solid rgba(0, 243, 255, 0.35);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+    background: rgba(0, 243, 255, 0.06);
+  }
+
+  .phone-battery-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--magenta), var(--cyan));
+    box-shadow: 0 0 8px var(--cyan);
+    transition: width 0.6s ease;
+  }
+
+  .phone-battery-fill.charging {
+    animation: chargePulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes chargePulse {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.6); box-shadow: 0 0 14px var(--cyan); }
+  }
+
+  .phone-charge-bolt {
+    color: var(--cyan);
+    opacity: 0;
+    font-size: 11px;
+    transition: opacity 0.3s;
+  }
+  .phone-charge-bolt.on { opacity: 1; animation: boltFlash 0.9s ease-in-out infinite; }
+  @keyframes boltFlash { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; text-shadow: 0 0 8px var(--cyan); } }
+
+  .phone-device-badge {
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 0, 85, 0.45);
+    color: rgba(255, 0, 85, 0.85);
+    background: rgba(40, 0, 16, 0.35);
+    text-transform: uppercase;
+  }
+  .phone-device-badge.online {
+    border-color: rgba(0, 230, 118, 0.45);
+    color: #00e676;
+    background: rgba(0, 40, 20, 0.35);
+    box-shadow: 0 0 10px rgba(0, 230, 118, 0.2);
+  }
+
+  .pair-mobile-btn {
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 243, 255, 0.35);
+    background: rgba(0, 243, 255, 0.06);
+    color: var(--cyan);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 8px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .pair-mobile-btn:hover {
+    border-color: var(--cyan);
+    box-shadow: 0 0 12px rgba(0, 243, 255, 0.25);
+  }
+
+  .pair-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(6px);
+    z-index: 10000000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .pair-modal-backdrop.open { display: flex; }
+
+  .pair-modal {
+    width: min(360px, 92vw);
+    border: 1px solid rgba(0, 243, 255, 0.35);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(8,14,18,0.98), rgba(5,8,10,0.95));
+    box-shadow: 0 0 40px rgba(0, 243, 255, 0.15);
+    padding: 22px;
+    text-align: center;
+  }
+  .pair-modal h2 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--cyan);
+  }
+  .pair-modal p {
+    margin: 0 0 16px;
+    font-size: 9px;
+    line-height: 1.6;
+    color: rgba(216,246,248,0.65);
+  }
+  .pair-modal img {
+    width: 220px;
+    height: 220px;
+    border: 1px solid rgba(0, 243, 255, 0.25);
+    border-radius: 8px;
+    background: #fff;
+    padding: 8px;
+  }
+  .pair-modal .close-btn {
+    margin-top: 14px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 0, 85, 0.45);
+    background: transparent;
+    color: var(--magenta);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+
+  #panelPhoneMap {
+    left: 50%;
+    top: 120px;
+    transform: translateX(-50%);
+    width: min(560px, 90vw);
+    height: 420px;
+    border-color: rgba(0, 243, 255, 0.35);
+    box-shadow: 0 0 30px rgba(0, 243, 255, 0.12), inset 0 0 40px rgba(255, 0, 85, 0.04);
+  }
+  #panelPhoneMap.is-visible {
+    transform: translateX(-50%) scale(1) translateY(0);
+    animation: mapSlideIn 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  #panelPhoneMap.map-highlight {
+    border-color: var(--magenta);
+    box-shadow: 0 0 36px rgba(255, 0, 85, 0.35), 0 0 18px rgba(0, 243, 255, 0.25);
+  }
+  @keyframes mapSlideIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(24px) scale(0.96); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  }
+
+  .map-crt {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 500;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.03) 0px,
+      rgba(255,255,255,0.03) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode: overlay;
+  }
+
+  #phoneMapContainer {
+    flex: 1;
+    min-height: 220px;
+    border: 1px solid rgba(0, 243, 255, 0.2);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .map-reticle {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 34px;
+    height: 34px;
+    margin: -17px 0 0 -17px;
+    border: 2px solid var(--cyan);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--cyan);
+    pointer-events: none;
+    z-index: 600;
+    animation: reticlePulse 1.8s ease-in-out infinite;
+  }
+  .map-reticle::before,
+  .map-reticle::after {
+    content: '';
+    position: absolute;
+    background: var(--magenta);
+  }
+  .map-reticle::before { left: 50%; top: -8px; width: 2px; height: 8px; margin-left: -1px; }
+  .map-reticle::after { left: 50%; bottom: -8px; width: 2px; height: 8px; margin-left: -1px; }
+
+  @keyframes reticlePulse {
+    0%, 100% { transform: scale(1); opacity: 0.85; }
+    50% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 18px var(--magenta); }
+  }
+
+  .phone-telemetry-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 8px;
+    letter-spacing: 0.08em;
+  }
+  .phone-telemetry-grid .cell {
+    border: 1px solid rgba(0, 243, 255, 0.15);
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .phone-telemetry-grid .label { color: rgba(0, 243, 255, 0.55); display: block; margin-bottom: 3px; }
+  .phone-telemetry-grid .value { color: #eafcff; }
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 
@@ -178,6 +424,25 @@
 
   <div class="subsystem-strip">
     <span class="sys-chip on" id="chipWake">WAKE READY</span><span class="sys-chip" id="chipVoice">VOICE STANDBY</span><span class="sys-chip" id="chipGesture">MANUAL MODE</span>
+  </div>
+
+  <div class="phone-hud-strip">
+    <div class="phone-battery-wrap" title="Linked phone battery">
+      <span id="phoneBatteryLabel">BAT --%</span>
+      <div class="phone-battery-bar"><div class="phone-battery-fill" id="phoneBatteryFill"></div></div>
+      <span class="phone-charge-bolt" id="phoneChargeBolt">⚡</span>
+    </div>
+    <span class="phone-device-badge" id="phoneDeviceBadge">DISCONNECTED</span>
+    <button class="pair-mobile-btn" id="pairMobileBtn" type="button">Pair Mobile</button>
+  </div>
+
+  <div class="pair-modal-backdrop" id="pairModalBackdrop">
+    <div class="pair-modal">
+      <h2>PAIR MOBILE TELEMETRY</h2>
+      <p>Scan with Phone Camera to link telemetry — No app required.</p>
+      <img id="pairQrImage" alt="Phone tracker QR code" src="http://127.0.0.1:8080/api/phone/qr" />
+      <div><button class="close-btn" id="pairModalClose" type="button">CLOSE</button></div>
+    </div>
   </div>
 
   <div class="runtime-telemetry" id="runtimeTelemetry">// ENGINE OFFLINE // DISCONNECTED</div>
@@ -272,6 +537,28 @@
 
       <div style="color:var(--cyan); font-size:8.5px; margin-bottom:4px; letter-spacing:1px;">SYSTEM ARCHITECTURE</div>
       <p style="color:rgba(216,246,248,0.6); font-size:10px; line-height:1.5;">Zesty Neural Engine v1.0<br>Universal AI Adapter: ONLINE<br>Fibonacci Render: STABLE<br>Drag & Resize: ACTIVE</p>
+    </div>
+  </div>
+
+  <div class="panel" id="panelPhoneMap">
+    <div class="panel-header" title="Drag me to move!">
+      <span class="title" style="color:var(--cyan);">CYBERPUNK PHONE TRACKER // LIVE MAP</span>
+      <div class="window-controls">
+        <span onclick="minimizeZestyPanel('panelPhoneMap', 'MAP')">-</span>
+        <span style="color:#ff4646;" onclick="closeZestyPanel('panelPhoneMap')">X</span>
+      </div>
+    </div>
+    <div class="panel-content-vessel" style="position:relative; display:flex; flex-direction:column;">
+      <div class="phone-telemetry-grid">
+        <div class="cell"><span class="label">LOCATION</span><span class="value" id="phoneLocationName">AWAITING LINK...</span></div>
+        <div class="cell"><span class="label">COORDINATES</span><span class="value" id="phoneCoordinates">-- , --</span></div>
+        <div class="cell"><span class="label">BATTERY</span><span class="value" id="phoneMapBattery">--%</span></div>
+        <div class="cell"><span class="label">LAST SYNC</span><span class="value" id="phoneLastSync">--</span></div>
+      </div>
+      <div id="phoneMapContainer">
+        <div class="map-reticle"></div>
+        <div class="map-crt"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -497,6 +784,120 @@
     if (window.pyBridge) window.pyBridge.openSettings();
   }
 
+  // ==========================================
+  // PHONE TRACKER HUD + CYBERPUNK MAP
+  // ==========================================
+  let phoneMapInstance = null;
+  let phoneMapMarker = null;
+  let lastPhoneMetrics = null;
+
+  function initPhoneMap() {
+    if (phoneMapInstance || typeof L === 'undefined') return;
+    const container = document.getElementById('phoneMapContainer');
+    if (!container) return;
+    phoneMapInstance = L.map(container, {
+      zoomControl: false,
+      attributionControl: false,
+      preferCanvas: true
+    }).setView([15.65, 73.72], 11);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      subdomains: 'abcd'
+    }).addTo(phoneMapInstance);
+    phoneMapMarker = L.circleMarker([15.65, 73.72], {
+      radius: 8,
+      color: '#00f3ff',
+      fillColor: '#ff0055',
+      fillOpacity: 0.85,
+      weight: 2
+    }).addTo(phoneMapInstance);
+    setTimeout(() => phoneMapInstance && phoneMapInstance.invalidateSize(), 120);
+  }
+
+  function updatePhoneHud(metrics) {
+    if (!metrics) return;
+    lastPhoneMetrics = metrics;
+    const connected = !!metrics.connected;
+    const level = Number(metrics.battery_level);
+    const label = document.getElementById('phoneBatteryLabel');
+    const fill = document.getElementById('phoneBatteryFill');
+    const bolt = document.getElementById('phoneChargeBolt');
+    const badge = document.getElementById('phoneDeviceBadge');
+
+    if (label) label.textContent = level >= 0 ? ('BAT ' + level + '%') : 'BAT --%';
+    if (fill) {
+      fill.style.width = (level >= 0 ? Math.max(0, Math.min(100, level)) : 0) + '%';
+      fill.classList.toggle('charging', !!metrics.is_charging);
+    }
+    if (bolt) bolt.classList.toggle('on', !!metrics.is_charging);
+    if (badge) {
+      badge.textContent = connected ? 'ONLINE' : 'DISCONNECTED';
+      badge.classList.toggle('online', connected);
+    }
+
+    const loc = document.getElementById('phoneLocationName');
+    const coords = document.getElementById('phoneCoordinates');
+    const mapBat = document.getElementById('phoneMapBattery');
+    const sync = document.getElementById('phoneLastSync');
+    if (loc) loc.textContent = metrics.location_name || 'UNKNOWN SECTOR';
+    if (coords) coords.textContent = (metrics.latitude || 0).toFixed(5) + ' , ' + (metrics.longitude || 0).toFixed(5);
+    if (mapBat) mapBat.textContent = (level >= 0 ? level + '%' : '--%') + (metrics.is_charging ? ' ⚡' : '');
+    if (sync) sync.textContent = metrics.timestamp ? new Date(metrics.timestamp).toLocaleString() : '--';
+
+    if (metrics.latitude && metrics.longitude) {
+      initPhoneMap();
+      if (phoneMapInstance && phoneMapMarker) {
+        const latLng = [metrics.latitude, metrics.longitude];
+        phoneMapMarker.setLatLng(latLng);
+        phoneMapInstance.flyTo(latLng, 14, { animate: true, duration: 1.2 });
+        setTimeout(() => phoneMapInstance && phoneMapInstance.invalidateSize(), 200);
+      }
+    }
+  }
+
+  function showPhoneMapPanel() {
+    const panel = document.getElementById('panelPhoneMap');
+    if (!panel) return;
+    initPhoneMap();
+    panel.classList.add('is-visible', 'map-highlight');
+    focusZestyPanel('panelPhoneMap');
+    if (lastPhoneMetrics) updatePhoneHud(lastPhoneMetrics);
+    setTimeout(() => panel.classList.remove('map-highlight'), 1800);
+    setTimeout(() => phoneMapInstance && phoneMapInstance.invalidateSize(), 250);
+  }
+
+  function onPhoneMetrics(jsonText) {
+    try {
+      const metrics = typeof jsonText === 'string' ? JSON.parse(jsonText) : jsonText;
+      updatePhoneHud(metrics);
+      showPhoneMapPanel();
+    } catch (err) {
+      console.warn('phone metrics parse failed', err);
+    }
+  }
+
+  function openPairMobileModal() {
+    const backdrop = document.getElementById('pairModalBackdrop');
+    const img = document.getElementById('pairQrImage');
+    if (!backdrop) return;
+    if (img) img.src = 'http://127.0.0.1:8080/api/phone/qr?t=' + Date.now();
+    backdrop.classList.add('open');
+  }
+
+  function closePairMobileModal() {
+    const backdrop = document.getElementById('pairModalBackdrop');
+    if (backdrop) backdrop.classList.remove('open');
+  }
+
+  function initPhoneTrackerUi() {
+    const pairBtn = document.getElementById('pairMobileBtn');
+    const closeBtn = document.getElementById('pairModalClose');
+    const backdrop = document.getElementById('pairModalBackdrop');
+    if (pairBtn) pairBtn.addEventListener('click', openPairMobileModal);
+    if (closeBtn) closeBtn.addEventListener('click', closePairMobileModal);
+    if (backdrop) backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closePairMobileModal(); });
+  }
+
   function onChatText(text) {
     if (!text) return;
     throbEnergy = 1.6;
@@ -577,6 +978,8 @@
       window.pyBridge.autoMode.connect(onAutoMode);
       window.pyBridge.statusText.connect(onStatusText);
       window.pyBridge.inputLevel.connect(onInputLevel);
+      if (window.pyBridge.phoneMetrics) window.pyBridge.phoneMetrics.connect(onPhoneMetrics);
+      if (window.pyBridge.showPhoneMap) window.pyBridge.showPhoneMap.connect(showPhoneMapPanel);
       onDeviceState('wake_ready');
       onConnectionState('disconnected');
       onStatusText('WAKE READY');
@@ -644,8 +1047,8 @@
     header.addEventListener('touchstart', startDrag, {passive: false}); window.addEventListener('touchmove', onDrag, {passive: false}); window.addEventListener('touchend', stopDrag);
   }
 
-  if(document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => { initOrbDragging(); initPyXiaozhiBridge(); ['panelSocial', 'panelSearch', 'panelFlavour', 'panelFamily', 'panelDriver', 'panelRecipe', 'panelCraftsmen', 'panelHelp'].forEach(makePanelDraggable); }); } 
-  else { initOrbDragging(); initPyXiaozhiBridge(); ['panelSocial', 'panelSearch', 'panelFlavour', 'panelFamily', 'panelDriver', 'panelRecipe', 'panelCraftsmen', 'panelHelp'].forEach(makePanelDraggable); }
+  if(document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => { initOrbDragging(); initPhoneTrackerUi(); initPyXiaozhiBridge(); ['panelSocial', 'panelSearch', 'panelFlavour', 'panelFamily', 'panelDriver', 'panelRecipe', 'panelCraftsmen', 'panelHelp', 'panelPhoneMap'].forEach(makePanelDraggable); }); } 
+  else { initOrbDragging(); initPhoneTrackerUi(); initPyXiaozhiBridge(); ['panelSocial', 'panelSearch', 'panelFlavour', 'panelFamily', 'panelDriver', 'panelRecipe', 'panelCraftsmen', 'panelHelp', 'panelPhoneMap'].forEach(makePanelDraggable); }
 
   // ==========================================
   // GENERAL UI BEHAVIORS & ANIMATIONS
