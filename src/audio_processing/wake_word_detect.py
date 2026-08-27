@@ -111,6 +111,68 @@ class WakeWordDetector:
         self._mic_active_print_interval = 2.0
         self._last_candidate_print = 0.0
         self._fallback_mode = False
+        self._load_task: Optional[asyncio.Task] = None
+        self._load_ready = asyncio.Event()
+
+    def schedule_background_initialize(
+        self,
+        model_path: Optional[str] = None,
+        *,
+        on_complete: Optional[Callable[[bool], None]] = None,
+    ) -> asyncio.Task:
+        """Load OpenWakeWord models on a background task (non-blocking for Qt GUI)."""
+        if self._load_task and not self._load_task.done():
+            return self._load_task
+
+        self._load_ready.clear()
+        print(
+            "[OWW LOADING] OpenWakeWord models loading in background (GUI unblocked)...",
+            flush=True,
+        )
+        logger.info("OpenWakeWord background load scheduled")
+
+        self._load_task = asyncio.create_task(
+            self._background_initialize(model_path, on_complete),
+            name="wake_word:openwakeword_init",
+        )
+        return self._load_task
+
+    async def _background_initialize(
+        self,
+        model_path: Optional[str],
+        on_complete: Optional[Callable[[bool], None]],
+    ) -> bool:
+        ok = False
+        try:
+            ok = await self.initialize(model_path)
+            return ok
+        except asyncio.CancelledError:
+            logger.info("OpenWakeWord background load cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"OpenWakeWord background load failed: {e}", exc_info=True)
+            return False
+        finally:
+            self._load_ready.set()
+            if on_complete:
+                try:
+                    on_complete(ok)
+                except Exception as e:
+                    logger.error(
+                        f"OpenWakeWord on_complete callback failed: {e}", exc_info=True
+                    )
+
+    async def wait_until_initialized(self, timeout: Optional[float] = 120.0) -> bool:
+        """Await background initialization (tests / reload paths)."""
+        if self.enabled and self._model_loaded:
+            return True
+        if self._load_task is None:
+            return False
+        if timeout is None:
+            await self._load_ready.wait()
+        else:
+            await asyncio.wait_for(self._load_ready.wait(), timeout=timeout)
+        return self.enabled and self._model_loaded
 
     async def initialize(self, model_path: Optional[str] = None) -> bool:
         try:
@@ -282,6 +344,16 @@ class WakeWordDetector:
     async def stop(self) -> None:
         self._stopping = True
         self._running = False
+
+        if self._load_task and not self._load_task.done():
+            current = asyncio.current_task()
+            if self._load_task is not current:
+                self._load_task.cancel()
+                try:
+                    await self._load_task
+                except asyncio.CancelledError:
+                    pass
+                self._load_task = None
 
         if self.audio_codec:
             self.audio_codec.remove_audio_listener(self)

@@ -155,6 +155,64 @@ async def test_openwakeword_fallback_triggers_with_bundled_label():
 
 
 @pytest.mark.asyncio
+async def test_wake_word_plugin_start_is_non_blocking():
+    from src.plugins.wake_word import WakeWordPlugin
+
+    plugin = WakeWordPlugin()
+    plugin.detector = MagicMock()
+    plugin._cmd = MagicMock()
+
+    hang = asyncio.Event()
+
+    async def slow_bootstrap(self):
+        await hang.wait()
+
+    spawned = []
+
+    def fake_spawn(coro, name):
+        task = asyncio.create_task(coro, name=name)
+        spawned.append(task)
+        return task
+
+    plugin._cmd.spawn = fake_spawn
+    plugin._bootstrap_wake_word = slow_bootstrap.__get__(plugin, WakeWordPlugin)
+
+    await asyncio.wait_for(plugin.start(), timeout=0.25)
+    assert len(spawned) == 1
+
+    hang.set()
+    await spawned[0]
+
+
+@pytest.mark.asyncio
+async def test_schedule_background_initialize_runs_in_task(tmp_path, monkeypatch):
+    from src.audio_processing import wake_word_detect
+    from src.utils.config_manager import ConfigManager, reset_config
+
+    reset_config()
+    model_file = tmp_path / "zesty.onnx"
+    model_file.write_bytes(b"onnx")
+
+    cm = ConfigManager()
+    cm.update_config("WAKE_WORD_OPTIONS.OPENWAKEWORD_MODEL_PATH", str(model_file), save=False)
+
+    mock_model = MagicMock()
+    mock_model.models = {"zesty": object()}
+
+    monkeypatch.setattr(wake_word_detect, "get_config", lambda: cm)
+
+    with patch("openwakeword.utils.download_models"), patch(
+        "openwakeword.model.Model", return_value=mock_model
+    ):
+        detector = wake_word_detect.WakeWordDetector()
+        task = detector.schedule_background_initialize()
+        ok = await task
+
+    assert ok is True
+    assert detector.enabled is True
+
+
+@pytest.mark.asyncio
 async def test_openwakeword_initialize_loads_model(tmp_path, monkeypatch):
     from src.audio_processing import wake_word_detect
     from src.utils.config_manager import ConfigManager, reset_config
