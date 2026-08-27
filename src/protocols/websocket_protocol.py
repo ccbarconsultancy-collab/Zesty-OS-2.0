@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import ssl
+from urllib.parse import urlparse
 
 import websockets
 
@@ -17,7 +18,11 @@ ssl_context = ssl._create_unverified_context()
 logger = get_logger()
 
 # Cold DNS/TLS on qasync can exceed the library default; 5s was too aggressive.
-WEBSOCKET_OPEN_TIMEOUT = 20
+WEBSOCKET_CONNECT_TIMEOUT = 20.0
+WEBSOCKET_OPEN_TIMEOUT = WEBSOCKET_CONNECT_TIMEOUT
+WEBSOCKET_PING_INTERVAL = 10
+WEBSOCKET_PING_TIMEOUT = 10
+WEBSOCKET_HELLO_TIMEOUT = 20.0
 
 
 class WebsocketProtocol(Protocol):
@@ -47,6 +52,25 @@ class WebsocketProtocol(Protocol):
             "Client-Id": client_id,
         }
 
+    def _websocket_host(self) -> str:
+        try:
+            return urlparse(self.WEBSOCKET_URL).netloc or "api.tenclass.net"
+        except Exception:
+            return "api.tenclass.net"
+
+    def _log_net_reconnect(self) -> None:
+        host = self._websocket_host()
+        print(
+            f"[NET RECONNECT] Re-establishing persistent WebSocket session to {host}...",
+            flush=True,
+        )
+        logger.info("NET RECONNECT: re-establishing WebSocket session to %s", host)
+
+    async def _attempt_reconnect(self, original_reason: str):
+        """Auto-reconnect with visible NET RECONNECT notice (persistent IDLE session)."""
+        self._log_net_reconnect()
+        await super()._attempt_reconnect(original_reason)
+
     async def connect(self) -> bool:
         """
         连接到WebSocket服务器.
@@ -71,10 +95,10 @@ class WebsocketProtocol(Protocol):
                     uri=self.WEBSOCKET_URL,
                     ssl=current_ssl_context,
                     additional_headers=self.HEADERS,
-                    ping_interval=20,
-                    ping_timeout=20,
+                    ping_interval=WEBSOCKET_PING_INTERVAL,
+                    ping_timeout=WEBSOCKET_PING_TIMEOUT,
                     close_timeout=10,
-                    open_timeout=WEBSOCKET_OPEN_TIMEOUT,
+                    open_timeout=WEBSOCKET_CONNECT_TIMEOUT,
                     max_size=10 * 1024 * 1024,
                     compression=None,
                     proxy=None,
@@ -85,10 +109,10 @@ class WebsocketProtocol(Protocol):
                     self.WEBSOCKET_URL,
                     ssl=current_ssl_context,
                     extra_headers=self.HEADERS,
-                    ping_interval=20,
-                    ping_timeout=20,
+                    ping_interval=WEBSOCKET_PING_INTERVAL,
+                    ping_timeout=WEBSOCKET_PING_TIMEOUT,
                     close_timeout=10,
-                    open_timeout=WEBSOCKET_OPEN_TIMEOUT,
+                    open_timeout=WEBSOCKET_CONNECT_TIMEOUT,
                     max_size=10 * 1024 * 1024,
                     compression=None,
                 )
@@ -118,7 +142,9 @@ class WebsocketProtocol(Protocol):
 
             # 等待服务器hello响应
             try:
-                await asyncio.wait_for(self.hello_received.wait(), timeout=10.0)
+                await asyncio.wait_for(
+                    self.hello_received.wait(), timeout=WEBSOCKET_HELLO_TIMEOUT
+                )
                 self.connected = True
                 self._reconnect_attempts = 0  # 重置重连计数
                 logger.info("已连接到WebSocket服务器")

@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 
 logger = get_logger()
 
+DEFAULT_CONNECT_TIMEOUT = 20.0
+CONNECT_RETRY_ATTEMPTS = 3
+CONNECT_RETRY_BASE_DELAY = 2.0
+
 # 音频回调类型
 AudioCallback = Callable[[bytes], Awaitable[None]]
 
@@ -82,6 +86,12 @@ class ProtocolTransport:
         self._protocol.on_incoming_audio(self._on_incoming_audio)
         self._protocol.on_audio_channel_opened(self._on_audio_channel_opened)
         self._protocol.on_audio_channel_closed(self._on_audio_channel_closed)
+        if hasattr(self._protocol, "on_reconnecting"):
+            self._protocol.on_reconnecting(self._on_protocol_reconnecting)
+
+    def _on_protocol_reconnecting(self, attempt: int, max_attempts: int) -> None:
+        """Silent reconnect path — keep IDLE session; UI error deferred until exhausted."""
+        logger.info("协议静默重连 %s/%s", attempt, max_attempts)
 
     def _spawn(self, coro: Awaitable, name: str) -> None:
         """优先走 TaskManager；否则本地 create_task 并记录异常."""
@@ -212,6 +222,18 @@ class ProtocolTransport:
                 break
 
     async def _on_network_error(self, error_message: str = None) -> None:
+        protocol = self._protocol
+        if (
+            error_message
+            and protocol
+            and getattr(protocol, "_auto_reconnect_enabled", False)
+            and getattr(protocol, "_reconnect_attempts", 0)
+            < getattr(protocol, "_max_reconnect_attempts", 0)
+        ):
+            logger.warning(
+                "网络错误（自动重连进行中，保持会话状态）: %s", error_message
+            )
+            return
         if error_message:
             logger.error(f"网络错误: {error_message}")
         await self._event_bus.emit(Events.NETWORK_ERROR, error_message)
@@ -246,7 +268,7 @@ class ProtocolTransport:
             logger.debug("检查音频通道状态时发生异常", exc_info=True)
             return False
 
-    async def connect(self, timeout: float = 12.0) -> bool:
+    async def connect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> bool:
         if self.is_audio_channel_opened():
             return True
 
@@ -258,24 +280,45 @@ class ProtocolTransport:
             if self.is_audio_channel_opened():
                 return True
 
-            try:
-                opened = await asyncio.wait_for(
-                    self._protocol.open_audio_channel(),
-                    timeout=timeout,
-                )
-                if not opened:
-                    logger.error("协议连接失败")
-                    return False
+            auto_reconnect = getattr(self._protocol, "_auto_reconnect_enabled", False)
+            attempts = CONNECT_RETRY_ATTEMPTS if auto_reconnect else 1
 
-                logger.info("协议连接已建立")
-                return True
+            for attempt in range(1, attempts + 1):
+                try:
+                    opened = await asyncio.wait_for(
+                        self._protocol.open_audio_channel(),
+                        timeout=timeout,
+                    )
+                    if opened:
+                        logger.info("协议连接已建立")
+                        return True
 
-            except asyncio.TimeoutError:
-                logger.error("协议连接超时")
-                return False
-            except Exception as e:
-                logger.error(f"协议连接异常: {e}", exc_info=True)
-                return False
+                    logger.warning(
+                        "协议连接失败 (attempt %s/%s)", attempt, attempts
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "协议连接超时 (attempt %s/%s, timeout=%ss)",
+                        attempt,
+                        attempts,
+                        timeout,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"协议连接异常 (attempt {attempt}/{attempts}): {e}",
+                        exc_info=True,
+                    )
+
+                if attempt < attempts:
+                    if hasattr(self._protocol, "_log_net_reconnect"):
+                        self._protocol._log_net_reconnect()
+                    delay = min(
+                        CONNECT_RETRY_BASE_DELAY * attempt, 10.0
+                    )
+                    await asyncio.sleep(delay)
+
+            logger.error("协议连接超时")
+            return False
 
     async def disconnect(self) -> None:
         if self._protocol:
@@ -373,7 +416,7 @@ class ProtocolManager:
     def is_audio_channel_opened(self) -> bool:
         return self._transport.is_audio_channel_opened()
 
-    async def connect(self, timeout: float = 12.0) -> bool:
+    async def connect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> bool:
         return await self._transport.connect(timeout)
 
     async def disconnect(self) -> None:
