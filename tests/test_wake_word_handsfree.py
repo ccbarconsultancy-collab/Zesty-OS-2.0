@@ -168,4 +168,24 @@ def test_wake_word_phonetic_aliases_keywords_file(tmp_path, monkeypatch):
     assert "@HEYJESTY" in body
     assert "@HEYJISTRY" in body
     assert "@JESTY" in body
-    assert body.count("\n") >= 3
+    assert "@HIJESTY" in body
+    assert "@JESSIE" in body
+    assert "@CHEST" in body
+    assert body.count("\n") >= 6
+
+
+def test_fuzzy_wake_match_accepts_partial_jesty_tokens():
+    from src.audio_processing.wake_word_detect import (
+        _fuzzy_wake_match,
+        _resolve_fuzzy_wake_label,
+    )
+
+    tokens = ["▁HE", "Y", "▁JE", "S", "TY"]
+    assert _fuzzy_wake_match("", tokens) is True
+    assert _resolve_fuzzy_wake_label("", tokens, "Hey Jesty") == "HEYJESTY"
+
+
+def test_fuzzy_wake_match_rejects_unrelated_tokens():
+    from src.audio_processing.wake_word_detect import _fuzzy_wake_match
+
+    assert _fuzzy_wake_match("", ["▁HEL", "LO"]) is False

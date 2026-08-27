@@ -89,7 +89,16 @@ class ConfigManager:
             "NUM_TRAILING_BLANKS": 1,
             "WAKE_WORD": "Hey Jesty",
             "WAKE_WORD_LANG": "en",
-            "PHONETIC_ALIASES": ["Hey Jesty", "Hey Jistry", "Jesty"],
+            "PHONETIC_ALIASES": [
+                "Hey Jesty",
+                "Hey Jistry",
+                "Jesty",
+                "jesty",
+                "hey jesty",
+                "hi jesty",
+                "jessie",
+                "chest",
+            ],
         },
         "CAMERA": {
             "camera_index": 0,
@@ -339,7 +348,16 @@ class ConfigManager:
             wwo["MODEL_PATH"] = "models/en"
             wwo["KEYWORDS_THRESHOLD"] = 0.05
             wwo["KEYWORDS_SCORE"] = 1.0
-            wwo["PHONETIC_ALIASES"] = ["Hey Jesty", "Hey Jistry", "Jesty"]
+            wwo["PHONETIC_ALIASES"] = [
+                "Hey Jesty",
+                "Hey Jistry",
+                "Jesty",
+                "jesty",
+                "hey jesty",
+                "hi jesty",
+                "jessie",
+                "chest",
+            ]
             ver = 2
 
         # 将来：if ver < 3: ...; ver = 3
@@ -425,6 +443,11 @@ class ConfigManager:
                 "Hey Jesty",
                 "Hey Jistry",
                 "Jesty",
+                "jesty",
+                "hey jesty",
+                "hi jesty",
+                "jessie",
+                "chest",
             ],
         }
         changed = False

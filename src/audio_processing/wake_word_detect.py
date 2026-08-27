@@ -1,5 +1,6 @@
 import asyncio
 import queue
+import re
 import threading
 import time
 from pathlib import Path
@@ -17,7 +18,68 @@ logger = get_logger()
 _STOP_SENTINEL = object()
 
 # Phonetic aliases for natural speech variation (sherpa-onnx multi-line keywords).
-DEFAULT_PHONETIC_ALIASES = ("Hey Jesty", "Hey Jistry", "Jesty")
+DEFAULT_PHONETIC_ALIASES = (
+    "Hey Jesty",
+    "Hey Jistry",
+    "Jesty",
+    "jesty",
+    "hey jesty",
+    "hi jesty",
+    "jessie",
+    "chest",
+)
+
+# Always merged into keywords.txt even when user config has a shorter alias list.
+BUILTIN_WAKE_ALIASES = DEFAULT_PHONETIC_ALIASES
+
+# Substring fragments for fuzzy token fallback when Sherpa returns partial acoustics.
+FUZZY_WAKE_FRAGMENTS = (
+    "heyjesty",
+    "heyjistry",
+    "hijesty",
+    "jesty",
+    "jessie",
+    "jistry",
+    "chest",
+    "jest",
+    "jess",
+)
+
+
+def _normalize_kws_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def _fuzzy_wake_match(result: str, tokens: list) -> bool:
+    """True when decoded tokens resemble a Jesty wake phrase without exact keyword hit."""
+    if result:
+        return False
+    if not tokens:
+        return False
+
+    parts = [_normalize_kws_text(result)]
+    parts.extend(_normalize_kws_text(str(token).lstrip("▁")) for token in tokens)
+    blob = "".join(parts)
+    return any(fragment in blob for fragment in FUZZY_WAKE_FRAGMENTS)
+
+
+def _resolve_fuzzy_wake_label(
+    result: str, tokens: list, primary: str = "Hey Jesty"
+) -> str:
+    """Map fuzzy acoustic tokens to the canonical wake label."""
+    if result:
+        return result
+    blob = _normalize_kws_text("".join(str(t).lstrip("▁") for t in tokens))
+    if "hijesty" in blob:
+        return "HIJESTY"
+    if "jessie" in blob:
+        return "JESSIE"
+    if "heyjistry" in blob or "jistry" in blob:
+        return "HEYJISTRY"
+    if "chest" in blob:
+        return "CHEST"
+    canonical = re.sub(r"[^a-z0-9]", "", primary.lower())
+    return canonical.upper() or "HEYJESTY"
 
 
 def _collect_wake_phrases(config: ConfigManager, primary: str) -> list[str]:
@@ -25,10 +87,13 @@ def _collect_wake_phrases(config: ConfigManager, primary: str) -> list[str]:
     aliases = config.get_config("WAKE_WORD_OPTIONS.PHONETIC_ALIASES") or []
     if not aliases:
         aliases = list(DEFAULT_PHONETIC_ALIASES)
+    else:
+        # Always merge built-in simplified phonemes (config may be stale).
+        aliases = [*aliases, *DEFAULT_PHONETIC_ALIASES]
 
     phrases: list[str] = []
     seen: set[str] = set()
-    for raw in (primary, *aliases):
+    for raw in (primary, *aliases, *BUILTIN_WAKE_ALIASES):
         phrase = (raw or "").strip()
         key = phrase.lower()
         if phrase and key not in seen:
@@ -131,6 +196,7 @@ class WakeWordDetector:
         self._speech_active = False
         self._last_mic_active_print = 0.0
         self._mic_active_print_interval = 2.0
+        self._primary_wake_phrase = "Hey Jesty"
 
     async def initialize(self, model_path: Optional[str] = None) -> bool:
         try:
@@ -143,6 +209,9 @@ class WakeWordDetector:
 
             # 2. 加载配置参数
             self._load_config(config)
+            self._primary_wake_phrase = (
+                config.get_config("WAKE_WORD_OPTIONS.WAKE_WORD") or "Hey Jesty"
+            ).strip()
 
             # 3. 从 WAKE_WORD 同步 keywords / lang / model（避免与配置漂移）
             try:
@@ -548,10 +617,14 @@ class WakeWordDetector:
                     result = self._keyword_spotter.get_result(self._stream)
                     tokens = self._keyword_spotter.tokens(self._stream)
                     timestamps = self._keyword_spotter.timestamps(self._stream)
-                    self._log_wake_candidate(result, tokens, timestamps)
+                    fuzzy_hit = _fuzzy_wake_match(result, tokens)
+                    self._log_wake_candidate(result, tokens, timestamps, fuzzy_hit)
 
-                    if result:
-                        detected_result = result
+                    detected = result or self._try_fuzzy_wake_detection(
+                        result, tokens, timestamps
+                    )
+                    if detected:
+                        detected_result = detected
                         self._keyword_spotter.reset_stream(self._stream)
             except Exception as e:
                 logger.debug(f"处理音频时出错: {e}")
@@ -578,13 +651,40 @@ class WakeWordDetector:
         elif self._speech_active and rms < self._speech_rms_threshold * 0.5:
             self._speech_active = False
 
-    def _log_wake_candidate(
+    def _try_fuzzy_wake_detection(
         self, result: str, tokens: list, timestamps: list
+    ) -> Optional[str]:
+        """Fallback when Sherpa emits high-probability tokens without keyword label."""
+        if not _fuzzy_wake_match(result, tokens):
+            return None
+
+        blob = _normalize_kws_text("".join(str(t).lstrip("▁") for t in tokens))
+        strong_single = any(
+            frag in blob
+            for frag in ("jesty", "jessie", "chest", "hijesty", "heyjesty", "heyjistry")
+        )
+        if len(tokens) < 2 and not strong_single:
+            return None
+
+        label = _resolve_fuzzy_wake_label(
+            result, tokens, primary=self._primary_wake_phrase
+        )
+        print(
+            f"[WAKE FUZZY MATCH] acoustic tokens={tokens} -> {label!r}",
+            flush=True,
+        )
+        logger.info(f"WAKE_WORD_FUZZY_MATCH: tokens={tokens} -> {label!r}")
+        return label
+
+    def _log_wake_candidate(
+        self, result: str, tokens: list, timestamps: list, fuzzy_hit: bool = False
     ) -> None:
         """Log every KWS decode evaluation, including sub-threshold candidates."""
-        passed = bool(result)
-        if passed:
+        passed = bool(result) or fuzzy_hit
+        if result:
             match_score = 1.0
+        elif fuzzy_hit:
+            match_score = min(0.99, 0.5 + 0.1 * len(tokens))
         elif tokens:
             match_score = min(0.99, 0.1 + 0.15 * len(tokens))
         else:
@@ -596,6 +696,7 @@ class WakeWordDetector:
             f"threshold={self._keywords_threshold:.3f} "
             f"score_boost={self._keywords_score:.2f} "
             f"passed={passed} "
+            f"fuzzy={fuzzy_hit} "
             f"tokens={tokens} "
             f"timestamps={timestamps}",
             flush=True,

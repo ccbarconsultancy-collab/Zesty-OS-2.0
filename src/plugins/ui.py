@@ -2,6 +2,7 @@
 
 from typing import TYPE_CHECKING, Optional
 
+from src.constants.constants import DeviceState
 from src.logging import get_logger
 from src.plugins.base import Plugin
 from src.plugins.ui_presenter import UiPresenter
