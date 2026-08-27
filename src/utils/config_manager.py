@@ -99,6 +99,10 @@ class ConfigManager:
                 "jessie",
                 "chest",
             ],
+            "KWS_ENGINE": "auto",
+            "PORCUPINE_KEYWORDS": ["jarvis", "computer"],
+            "PORCUPINE_SENSITIVITY": 0.65,
+            "PICOVOICE_ACCESS_KEY": "",
         },
         "CAMERA": {
             "camera_index": 0,
@@ -449,6 +453,9 @@ class ConfigManager:
                 "jessie",
                 "chest",
             ],
+            "WAKE_WORD_OPTIONS.KWS_ENGINE": "auto",
+            "WAKE_WORD_OPTIONS.PORCUPINE_KEYWORDS": ["jarvis", "computer"],
+            "WAKE_WORD_OPTIONS.PORCUPINE_SENSITIVITY": 0.65,
         }
         changed = False
         for path, value in desired.items():

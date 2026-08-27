@@ -8,6 +8,10 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from src.audio_processing.kws_engines import (
+    PorcupineKwsEngine,
+    format_engine_label,
+)
 from src.constants.constants import AudioConfig
 from src.logging import get_logger
 from src.utils.config_manager import ConfigManager, get_config
@@ -197,6 +201,10 @@ class WakeWordDetector:
         self._last_mic_active_print = 0.0
         self._mic_active_print_interval = 2.0
         self._primary_wake_phrase = "Hey Jesty"
+        self._kws_engine_mode = "auto"
+        self._porcupine_engine: Optional[PorcupineKwsEngine] = None
+        self._kws_engine_label = "Sherpa-ONNX"
+        self._sherpa_active = False
 
     async def initialize(self, model_path: Optional[str] = None) -> bool:
         try:
@@ -212,6 +220,9 @@ class WakeWordDetector:
             self._primary_wake_phrase = (
                 config.get_config("WAKE_WORD_OPTIONS.WAKE_WORD") or "Hey Jesty"
             ).strip()
+            self._kws_engine_mode = (
+                config.get_config("WAKE_WORD_OPTIONS.KWS_ENGINE") or "auto"
+            ).strip().lower()
 
             # 3. 从 WAKE_WORD 同步 keywords / lang / model（避免与配置漂移）
             try:
@@ -227,31 +238,84 @@ class WakeWordDetector:
                 model_path = synced_model
 
             self._model_dir = get_app_root() / model_path
-
-            if not self._model_dir.exists():
-                logger.error(f"模型目录不存在: {self._model_dir}")
-                self.enabled = False
-                return False
+            sherpa_model_available = self._model_dir.exists()
+            if not sherpa_model_available:
+                if self._kws_engine_mode == "sherpa":
+                    logger.error(f"模型目录不存在: {self._model_dir}")
+                    self.enabled = False
+                    return False
+                logger.warning(
+                    f"Sherpa 模型目录不存在 ({self._model_dir}) — 将尝试 Porcupine-only KWS"
+                )
 
             # 4. 停止旧检测循环并释放旧模型
             if self._running:
                 await self.stop()
             self._release_model()
 
-            # 5. 加载新模型
-            if not self._load_model():
+            # 5. Primary: Porcupine (production KWS) when mode is auto/porcupine
+            self._porcupine_engine = None
+            porcupine_ok = False
+            if self._kws_engine_mode in ("auto", "porcupine"):
+                self._porcupine_engine = PorcupineKwsEngine.try_create(config)
+                porcupine_ok = self._porcupine_engine is not None
+
+            # 6. Secondary: Sherpa-ONNX fallback / custom "Hey Jesty" phonemes
+            sherpa_ok = False
+            if self._kws_engine_mode in ("auto", "sherpa"):
+                if sherpa_model_available:
+                    sherpa_ok = self._load_model()
+                else:
+                    logger.warning("跳过 Sherpa-ONNX 加载（模型目录不可用）")
+            self._sherpa_active = sherpa_ok
+
+            if not porcupine_ok and not sherpa_ok:
+                logger.error("No KWS engine available (Porcupine + Sherpa both failed)")
                 self.enabled = False
                 return False
 
             self.enabled = True
-            self._model_loaded = True
-            logger.info(f"唤醒词检测器初始化成功: {self._model_dir}")
+            self._model_loaded = porcupine_ok or sherpa_ok
+            self._kws_engine_label = format_engine_label(
+                self._porcupine_engine, sherpa_ok
+            )
+            self._print_kws_ready_banner()
+            logger.info(
+                f"唤醒词检测器初始化成功: engines={self._kws_engine_label}, "
+                f"sherpa_dir={self._model_dir if sherpa_ok else None}"
+            )
             return True
 
         except Exception as e:
             logger.error(f"唤醒词检测器初始化失败: {e}", exc_info=True)
             self.enabled = False
             return False
+
+    def _collect_target_words(self) -> list[str]:
+        targets: list[str] = []
+        seen: set[str] = set()
+        for raw in (
+            self._primary_wake_phrase,
+            *(self._porcupine_engine.keyword_labels if self._porcupine_engine else []),
+            "jarvis",
+            "computer",
+        ):
+            phrase = str(raw).strip()
+            key = phrase.lower()
+            if phrase and key not in seen:
+                targets.append(phrase)
+                seen.add(key)
+        return targets
+
+    def _print_kws_ready_banner(self) -> None:
+        targets = ", ".join(self._collect_target_words())
+        banner = (
+            f"[KWS ENGINE READY] Engine: {self._kws_engine_label} | "
+            f"Target Word Active: {targets} | "
+            f"Hands-Free Listening: UNLOCKED"
+        )
+        print(banner, flush=True)
+        logger.info(banner)
 
     def _load_config(self, config: ConfigManager):
         self._num_threads = config.get_config("WAKE_WORD_OPTIONS.NUM_THREADS", 4)
@@ -276,6 +340,8 @@ class WakeWordDetector:
 
     def _load_model(self) -> bool:
         """Load sherpa-onnx KeywordSpotter model."""
+        if self._model_dir is None or not self._model_dir.exists():
+            return False
         try:
             import sherpa_onnx
 
@@ -352,7 +418,14 @@ class WakeWordDetector:
         return safe_path
 
     def _release_model(self):
-        if not self._model_loaded:
+        if self._porcupine_engine is not None:
+            try:
+                self._porcupine_engine.shutdown()
+            except Exception as e:
+                logger.debug(f"释放 Porcupine 资源时出错: {e}")
+            self._porcupine_engine = None
+
+        if not self._model_loaded and not self._sherpa_active:
             return
         with self._onnx_lock:
             try:
@@ -371,6 +444,7 @@ class WakeWordDetector:
                     del stream
 
                 self._model_loaded = False
+                self._sherpa_active = False
                 logger.debug("模型资源已释放")
 
             except Exception as e:
@@ -406,8 +480,8 @@ class WakeWordDetector:
             logger.warning("唤醒词功能未启用")
             return False
 
-        if not self._keyword_spotter:
-            logger.error("模型未加载，请先调用 initialize()")
+        if not self._porcupine_engine and not self._keyword_spotter:
+            logger.error("KWS 引擎未加载，请先调用 initialize()")
             return False
 
         try:
@@ -418,9 +492,10 @@ class WakeWordDetector:
             # Thread-safe queue: mic callback runs on PortAudio thread, not asyncio.
             self._audio_queue = queue.Queue(maxsize=100)
 
-            # Create detection stream (serialized with ONNX inference)
-            with self._onnx_lock:
-                self._stream = self._keyword_spotter.create_stream()
+            # Create Sherpa stream only when secondary engine is active
+            if self._keyword_spotter:
+                with self._onnx_lock:
+                    self._stream = self._keyword_spotter.create_stream()
 
             # Register as audio listener
             self.audio_codec.add_audio_listener(self)
@@ -603,31 +678,46 @@ class WakeWordDetector:
 
         detected_result = None
 
-        with self._onnx_lock:
-            if self._stopping or self._stream is None or self._keyword_spotter is None:
-                return
-
+        # --- Primary: Picovoice Porcupine (robust KWS) ---
+        if self._porcupine_engine is not None:
             try:
-                self._stream.accept_waveform(
-                    sample_rate=self._sample_rate, waveform=audio_data
-                )
-
-                if self._keyword_spotter.is_ready(self._stream):
-                    self._keyword_spotter.decode_stream(self._stream)
-                    result = self._keyword_spotter.get_result(self._stream)
-                    tokens = self._keyword_spotter.tokens(self._stream)
-                    timestamps = self._keyword_spotter.timestamps(self._stream)
-                    fuzzy_hit = _fuzzy_wake_match(result, tokens)
-                    self._log_wake_candidate(result, tokens, timestamps, fuzzy_hit)
-
-                    detected = result or self._try_fuzzy_wake_detection(
-                        result, tokens, timestamps
+                porcupine_hit = self._porcupine_engine.process(audio_data)
+                if porcupine_hit:
+                    print(
+                        f"[PORCUPINE HIT] keyword={porcupine_hit!r} → activate_on_wake_word",
+                        flush=True,
                     )
-                    if detected:
-                        detected_result = detected
-                        self._keyword_spotter.reset_stream(self._stream)
+                    detected_result = porcupine_hit
             except Exception as e:
-                logger.debug(f"处理音频时出错: {e}")
+                logger.debug(f"Porcupine process error: {e}")
+
+        # --- Secondary: Sherpa-ONNX + fuzzy fallback ---
+        if detected_result is None and self._keyword_spotter is not None:
+            with self._onnx_lock:
+                if self._stopping or self._stream is None:
+                    pass
+                else:
+                    try:
+                        self._stream.accept_waveform(
+                            sample_rate=self._sample_rate, waveform=audio_data
+                        )
+
+                        if self._keyword_spotter.is_ready(self._stream):
+                            self._keyword_spotter.decode_stream(self._stream)
+                            result = self._keyword_spotter.get_result(self._stream)
+                            tokens = self._keyword_spotter.tokens(self._stream)
+                            timestamps = self._keyword_spotter.timestamps(self._stream)
+                            fuzzy_hit = _fuzzy_wake_match(result, tokens)
+                            self._log_wake_candidate(result, tokens, timestamps, fuzzy_hit)
+
+                            detected = result or self._try_fuzzy_wake_detection(
+                                result, tokens, timestamps
+                            )
+                            if detected:
+                                detected_result = detected
+                                self._keyword_spotter.reset_stream(self._stream)
+                    except Exception as e:
+                        logger.debug(f"处理音频时出错: {e}")
 
         if detected_result is not None:
             await self._handle_detection(detected_result)
