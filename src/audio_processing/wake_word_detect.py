@@ -1,6 +1,9 @@
+"""Offline OpenWakeWord detector for Zesty OS hands-free wake."""
+
+from __future__ import annotations
+
 import asyncio
 import queue
-import re
 import threading
 import time
 from pathlib import Path
@@ -8,96 +11,29 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from src.audio_processing.kws_engines import (
-    PorcupineKwsEngine,
-    format_engine_label,
-)
 from src.constants.constants import AudioConfig
 from src.logging import get_logger
 from src.utils.config_manager import ConfigManager, get_config
-from src.utils.resource_finder import get_app_root, get_user_keywords_path
+from src.utils.resource_finder import get_app_root, get_user_data_dir
 
 logger = get_logger()
 
 _STOP_SENTINEL = object()
 
-# Phonetic aliases for natural speech variation (sherpa-onnx multi-line keywords).
-DEFAULT_PHONETIC_ALIASES = (
-    "Hey Jesty",
-    "Hey Jistry",
-    "Jesty",
-    "jesty",
-    "hey jesty",
-    "hi jesty",
-    "jessie",
-    "chest",
-)
-
-# Always merged into keywords.txt even when user config has a shorter alias list.
-BUILTIN_WAKE_ALIASES = DEFAULT_PHONETIC_ALIASES
-
-# Substring fragments for fuzzy token fallback when Sherpa returns partial acoustics.
-FUZZY_WAKE_FRAGMENTS = (
-    "heyjesty",
-    "heyjistry",
-    "hijesty",
-    "jesty",
-    "jessie",
-    "jistry",
-    "chest",
-    "jest",
-    "jess",
-)
+DEFAULT_WAKE_WORD = "Zesty"
+DEFAULT_PHONETIC_ALIASES = ("Zesty", "Hey Zesty", "hey zesty", "hi zesty")
 
 
-def _normalize_kws_text(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
-
-
-def _fuzzy_wake_match(result: str, tokens: list) -> bool:
-    """True when decoded tokens resemble a Jesty wake phrase without exact keyword hit."""
-    if result:
-        return False
-    if not tokens:
-        return False
-
-    parts = [_normalize_kws_text(result)]
-    parts.extend(_normalize_kws_text(str(token).lstrip("▁")) for token in tokens)
-    blob = "".join(parts)
-    return any(fragment in blob for fragment in FUZZY_WAKE_FRAGMENTS)
-
-
-def _resolve_fuzzy_wake_label(
-    result: str, tokens: list, primary: str = "Hey Jesty"
-) -> str:
-    """Map fuzzy acoustic tokens to the canonical wake label."""
-    if result:
-        return result
-    blob = _normalize_kws_text("".join(str(t).lstrip("▁") for t in tokens))
-    if "hijesty" in blob:
-        return "HIJESTY"
-    if "jessie" in blob:
-        return "JESSIE"
-    if "heyjistry" in blob or "jistry" in blob:
-        return "HEYJISTRY"
-    if "chest" in blob:
-        return "CHEST"
-    canonical = re.sub(r"[^a-z0-9]", "", primary.lower())
-    return canonical.upper() or "HEYJESTY"
-
-
-def _collect_wake_phrases(config: ConfigManager, primary: str) -> list[str]:
-    """Primary wake phrase plus configured phonetic aliases (deduped)."""
+def _collect_wake_aliases(config: ConfigManager, primary: str) -> list[str]:
     aliases = config.get_config("WAKE_WORD_OPTIONS.PHONETIC_ALIASES") or []
     if not aliases:
         aliases = list(DEFAULT_PHONETIC_ALIASES)
     else:
-        # Always merge built-in simplified phonemes (config may be stale).
         aliases = [*aliases, *DEFAULT_PHONETIC_ALIASES]
 
     phrases: list[str] = []
     seen: set[str] = set()
-    for raw in (primary, *aliases, *BUILTIN_WAKE_ALIASES):
+    for raw in (primary, *aliases):
         phrase = (raw or "").strip()
         key = phrase.lower()
         if phrase and key not in seen:
@@ -106,68 +42,41 @@ def _collect_wake_phrases(config: ConfigManager, primary: str) -> list[str]:
     return phrases
 
 
-def _sync_wake_word_assets(config: ConfigManager) -> tuple[str, str, Path]:
-    """Derive model/lang/keywords from WAKE_WORD + aliases and keep files in sync."""
-    from src.audio_processing.keyword_converters import convert_wake_word_phrases
-
-    wake_word = (config.get_config("WAKE_WORD_OPTIONS.WAKE_WORD") or "").strip()
-    if not wake_word:
-        raise ValueError("WAKE_WORD_OPTIONS.WAKE_WORD is empty")
-
-    phrases = _collect_wake_phrases(config, wake_word)
-    keyword_body, lang, model_path = convert_wake_word_phrases(phrases)
-    keywords_path = get_user_keywords_path(lang)
-    keywords_path.parent.mkdir(parents=True, exist_ok=True)
-
-    current = (
-        keywords_path.read_text(encoding="utf-8") if keywords_path.exists() else ""
+def resolve_openwakeword_model_path(config: ConfigManager) -> Optional[Path]:
+    """Resolve custom Zesty .onnx model path (app bundle or user data)."""
+    configured = config.get_config("WAKE_WORD_OPTIONS.OPENWAKEWORD_MODEL_PATH")
+    candidates: list[Path] = []
+    if configured:
+        candidates.append(Path(str(configured)))
+    candidates.extend(
+        [
+            get_app_root() / "models" / "openwakeword" / "zesty.onnx",
+            get_app_root() / "models" / "openwakeword" / "hey_zesty.onnx",
+            get_user_data_dir() / "openwakeword" / "zesty.onnx",
+            get_user_data_dir() / "openwakeword" / "hey_zesty.onnx",
+        ]
     )
-    if current != keyword_body:
-        keywords_path.write_text(keyword_body, encoding="utf-8")
-        logger.info(
-            f"同步 keywords 文件 ({len(phrases)} 条别名): {phrases} -> {keywords_path}"
-        )
 
-    stored_lang = config.get_config("WAKE_WORD_OPTIONS.WAKE_WORD_LANG")
-    stored_model = config.get_config("WAKE_WORD_OPTIONS.MODEL_PATH")
-    if stored_lang != lang or stored_model != model_path:
-        logger.info(
-            f"同步唤醒词配置: lang {stored_lang!r} -> {lang!r}, "
-            f"model {stored_model!r} -> {model_path!r}"
-        )
-        config.update_config("WAKE_WORD_OPTIONS.WAKE_WORD_LANG", lang, save=False)
-        config.update_config("WAKE_WORD_OPTIONS.MODEL_PATH", model_path, save=False)
-        config.save_config()
-
-    logger.info(
-        f"WAKE_WORD_ARMED: {wake_word!r} aliases={phrases} (lang={lang}, model={model_path})"
-    )
-    return model_path, lang, keywords_path
+    for path in candidates:
+        resolved = path.expanduser()
+        if not resolved.is_absolute():
+            resolved = (get_app_root() / resolved).resolve()
+        if resolved.is_file():
+            return resolved
+    return None
 
 
 class WakeWordDetector:
-    """本地唤醒词检测器 (Battery-aware always-on listener).
+    """Always-on local wake-word detector using OpenWakeWord (100% offline)."""
 
-    Battery / Privacy:
-      - ARMED state: sherpa-onnx KeywordSpotter runs locally on microphone frames.
-        Audio is processed in-memory only; it is never encoded, sent to the
-        network, or recorded. This is the low-power "always-on" mode.
-      - When the app transitions to LISTENING/SPEAKING, call pause() to
-        stop KWS inference (saves CPU while audio flows to the server for STT).
-      - When returning to ARMED (IDLE), call resume() to re-enable detection.
-
-    The detector is an AudioListener on AudioCodec — it receives frames
-    via on_audio_data() and feeds them to the sherpa-onnx stream.
-    """
-
-    def __init__(self):
+    def __init__(self) -> None:
         self.audio_codec = None
         self._running = False
         self._paused = False
-        self._detection_task = None
+        self._detection_task: Optional[asyncio.Task] = None
         self._audio_queue: Optional[queue.Queue] = None
 
-        self._last_detection_time = 0
+        self._last_detection_time = 0.0
         self._detection_cooldown = 1.5
 
         self.on_detected_callback: Optional[Callable] = None
@@ -175,294 +84,133 @@ class WakeWordDetector:
 
         self.enabled = False
         self._model_loaded = False
-        self._model_dir: Optional[Path] = None
-        self._keyword_spotter = None
-        self._stream = None
+        self._stopping = False
+        self._model_lock = threading.Lock()
 
-        # 添加锁保护 sherpa-onnx 对象的访问
-        self._onnx_lock = threading.Lock()
-        self._stopping = False  # 标记是否正在停止
+        self._oww_model = None
+        self._oww_model_keys: list[str] = []
+        self._threshold = 0.45
+        self._inference_framework = "onnx"
 
         self._sample_rate = AudioConfig.INPUT_SAMPLE_RATE
-        self._num_threads = 4
-        self._provider = "cpu"
-        self._max_active_paths = 2
-        self._keywords_score = 1.0
-        self._keywords_threshold = 0.05
-        self._num_trailing_blanks = 1
+        self._primary_wake_phrase = DEFAULT_WAKE_WORD
+        self._wake_aliases: list[str] = list(DEFAULT_PHONETIC_ALIASES)
 
-        self._wake_word_lang = "zh"
-        self._keywords_path: Optional[Path] = None
         self._logged_first_audio_frame = False
-        self._rms_frame_counter = 0
-        self._rms_log_interval = 50
         self._speech_rms_threshold = 0.006
         self._speech_active = False
         self._last_mic_active_print = 0.0
         self._mic_active_print_interval = 2.0
-        self._primary_wake_phrase = "Hey Jesty"
-        self._kws_engine_mode = "auto"
-        self._porcupine_engine: Optional[PorcupineKwsEngine] = None
-        self._kws_engine_label = "Sherpa-ONNX"
-        self._sherpa_active = False
+        self._last_candidate_print = 0.0
 
     async def initialize(self, model_path: Optional[str] = None) -> bool:
         try:
-            # 1. 检查配置是否启用
             config = get_config()
             if not config.get_config("WAKE_WORD_OPTIONS.USE_WAKE_WORD", True):
                 logger.info("唤醒词功能已禁用")
                 self.enabled = False
                 return False
 
-            # 2. 加载配置参数
             self._load_config(config)
             self._primary_wake_phrase = (
-                config.get_config("WAKE_WORD_OPTIONS.WAKE_WORD") or "Hey Jesty"
+                config.get_config("WAKE_WORD_OPTIONS.WAKE_WORD") or DEFAULT_WAKE_WORD
             ).strip()
-            self._kws_engine_mode = (
-                config.get_config("WAKE_WORD_OPTIONS.KWS_ENGINE") or "auto"
-            ).strip().lower()
+            self._wake_aliases = _collect_wake_aliases(config, self._primary_wake_phrase)
 
-            # 3. 从 WAKE_WORD 同步 keywords / lang / model（避免与配置漂移）
-            try:
-                synced_model, self._wake_word_lang, self._keywords_path = (
-                    _sync_wake_word_assets(config)
-                )
-            except ValueError as e:
-                logger.error(f"唤醒词配置无效: {e}")
-                self.enabled = False
-                return False
-
-            if model_path is None:
-                model_path = synced_model
-
-            self._model_dir = get_app_root() / model_path
-            sherpa_model_available = self._model_dir.exists()
-            if not sherpa_model_available:
-                if self._kws_engine_mode == "sherpa":
-                    logger.error(f"模型目录不存在: {self._model_dir}")
-                    self.enabled = False
-                    return False
-                logger.warning(
-                    f"Sherpa 模型目录不存在 ({self._model_dir}) — 将尝试 Porcupine-only KWS"
+            if model_path:
+                config.update_config(
+                    "WAKE_WORD_OPTIONS.OPENWAKEWORD_MODEL_PATH",
+                    model_path,
+                    save=False,
                 )
 
-            # 4. 停止旧检测循环并释放旧模型
             if self._running:
                 await self.stop()
             self._release_model()
 
-            # 5. Primary: Porcupine (production KWS) when mode is auto/porcupine
-            self._porcupine_engine = None
-            porcupine_ok = False
-            if self._kws_engine_mode in ("auto", "porcupine"):
-                self._porcupine_engine = PorcupineKwsEngine.try_create(config)
-                porcupine_ok = self._porcupine_engine is not None
-
-            # 6. Secondary: Sherpa-ONNX fallback / custom "Hey Jesty" phonemes
-            sherpa_ok = False
-            if self._kws_engine_mode in ("auto", "sherpa"):
-                if sherpa_model_available:
-                    sherpa_ok = self._load_model()
-                else:
-                    logger.warning("跳过 Sherpa-ONNX 加载（模型目录不可用）")
-            self._sherpa_active = sherpa_ok
-
-            if not porcupine_ok and not sherpa_ok:
-                logger.error("No KWS engine available (Porcupine + Sherpa both failed)")
+            ok = await asyncio.to_thread(self._load_openwakeword_model, config)
+            if not ok:
                 self.enabled = False
                 return False
 
             self.enabled = True
-            self._model_loaded = porcupine_ok or sherpa_ok
-            self._kws_engine_label = format_engine_label(
-                self._porcupine_engine, sherpa_ok
-            )
-            self._print_kws_ready_banner()
+            self._model_loaded = True
+            self._print_startup_banner()
             logger.info(
-                f"唤醒词检测器初始化成功: engines={self._kws_engine_label}, "
-                f"sherpa_dir={self._model_dir if sherpa_ok else None}"
+                "OpenWakeWord 初始化成功: model_keys=%s threshold=%.2f",
+                self._oww_model_keys,
+                self._threshold,
             )
             return True
-
         except Exception as e:
             logger.error(f"唤醒词检测器初始化失败: {e}", exc_info=True)
             self.enabled = False
             return False
 
-    def _collect_target_words(self) -> list[str]:
-        targets: list[str] = []
-        seen: set[str] = set()
-        for raw in (
-            self._primary_wake_phrase,
-            *(self._porcupine_engine.keyword_labels if self._porcupine_engine else []),
-            "jarvis",
-            "computer",
-        ):
-            phrase = str(raw).strip()
-            key = phrase.lower()
-            if phrase and key not in seen:
-                targets.append(phrase)
-                seen.add(key)
-        return targets
+    def _load_config(self, config: ConfigManager) -> None:
+        self._threshold = float(
+            config.get_config("WAKE_WORD_OPTIONS.OPENWAKEWORD_THRESHOLD", 0.45)
+        )
+        self._threshold = max(0.05, min(0.99, self._threshold))
+        self._inference_framework = (
+            config.get_config("WAKE_WORD_OPTIONS.OPENWAKEWORD_INFERENCE", "onnx")
+            or "onnx"
+        ).strip().lower()
+        if self._inference_framework not in ("onnx", "tflite"):
+            self._inference_framework = "onnx"
 
-    def _print_kws_ready_banner(self) -> None:
-        targets = ", ".join(self._collect_target_words())
+    def _load_openwakeword_model(self, config: ConfigManager) -> bool:
+        from openwakeword.model import Model
+        from openwakeword.utils import download_models
+
+        model_path = resolve_openwakeword_model_path(config)
+        if model_path is None:
+            logger.error(
+                "Zesty OpenWakeWord model not found. Place zesty.onnx in "
+                "models/openwakeword/ or set WAKE_WORD_OPTIONS.OPENWAKEWORD_MODEL_PATH"
+            )
+            return False
+
+        # One-time download of shared feature/VAD models (offline after cache).
+        download_models(model_names=[])
+
+        logger.info("Loading OpenWakeWord model: %s", model_path)
+        with self._model_lock:
+            self._oww_model = Model(
+                wakeword_models=[str(model_path)],
+                inference_framework=self._inference_framework,
+            )
+            self._oww_model_keys = list(self._oww_model.models.keys())
+        return bool(self._oww_model_keys)
+
+    def _print_startup_banner(self) -> None:
         banner = (
-            f"[KWS ENGINE READY] Engine: {self._kws_engine_label} | "
-            f"Target Word Active: {targets} | "
-            f"Hands-Free Listening: UNLOCKED"
+            "[CLEAN KWS READY] Legacy Engines Purged | "
+            "Active Engine: OpenWakeWord | "
+            f"Target Wake-Word: '{self._primary_wake_phrase.upper()}' | "
+            "Status: UNLOCKED"
         )
         print(banner, flush=True)
         logger.info(banner)
 
-    def _load_config(self, config: ConfigManager):
-        self._num_threads = config.get_config("WAKE_WORD_OPTIONS.NUM_THREADS", 4)
-        self._provider = config.get_config("WAKE_WORD_OPTIONS.PROVIDER", "cpu")
-        self._max_active_paths = config.get_config("WAKE_WORD_OPTIONS.MAX_ACTIVE_PATHS", 2)
-        self._keywords_score = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_SCORE", 1.0)
-        self._keywords_threshold = config.get_config("WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD", 0.05)
-        self._num_trailing_blanks = config.get_config("WAKE_WORD_OPTIONS.NUM_TRAILING_BLANKS", 1)
+    def _release_model(self) -> None:
+        with self._model_lock:
+            self._oww_model = None
+            self._oww_model_keys = []
+        self._model_loaded = False
 
-        # Validate
-        if not 0.05 <= self._keywords_threshold <= 1.0:
-            logger.warning(f"关键词阈值 {self._keywords_threshold} 超出范围，重置为0.05")
-            self._keywords_threshold = 0.05
-
-        if not 0.1 <= self._keywords_score <= 10.0:
-            logger.warning(f"关键词分数 {self._keywords_score} 超出范围，重置为1.0")
-            self._keywords_score = 1.0
-
-        logger.info(
-            f"KWS配置: 阈值={self._keywords_threshold}, 分数={self._keywords_score} (max sensitivity)"
-        )
-
-    def _load_model(self) -> bool:
-        """Load sherpa-onnx KeywordSpotter model."""
-        if self._model_dir is None or not self._model_dir.exists():
-            return False
-        try:
-            import sherpa_onnx
-
-            encoder_path = self._model_dir / "encoder.onnx"
-            decoder_path = self._model_dir / "decoder.onnx"
-            joiner_path = self._model_dir / "joiner.onnx"
-            tokens_path = self._model_dir / "tokens.txt"
-
-            lang = self._wake_word_lang
-            keywords_path = self._keywords_path or get_user_keywords_path(lang)
-
-            required_files = [encoder_path, decoder_path, joiner_path, tokens_path, keywords_path]
-            for file_path in required_files:
-                if not file_path.exists():
-                    logger.error(f"模型文件不存在: {file_path}")
-                    return False
-
-            # Windows: sherpa-onnx C++ 用 std::ifstream(narrow_char*) 读取 tokens.txt，
-            # 路径含非 ASCII 字符时 GBK 代码页会吞掉反斜杠导致打开失败。
-            # 将 tokens.txt 复制到 ASCII 安全路径的用户目录下。
-            tokens_path = self._ensure_ascii_path(tokens_path, lang)
-
-            logger.info(f"加载 KeywordSpotter 模型: {self._model_dir}")
-
-            with self._onnx_lock:
-                self._keyword_spotter = sherpa_onnx.KeywordSpotter(
-                    tokens=str(tokens_path),
-                    encoder=str(encoder_path),
-                    decoder=str(decoder_path),
-                    joiner=str(joiner_path),
-                    keywords_file=str(keywords_path),
-                    num_threads=self._num_threads,
-                    sample_rate=self._sample_rate,
-                    feature_dim=80,
-                    max_active_paths=self._max_active_paths,
-                    keywords_score=self._keywords_score,
-                    keywords_threshold=self._keywords_threshold,
-                    num_trailing_blanks=self._num_trailing_blanks,
-                    provider=self._provider,
-                )
-
-            logger.info("KeywordSpotter 模型加载成功")
-            return True
-
-        except ImportError as e:
-            logger.error(f"sherpa_onnx 导入失败: {e}", exc_info=True)
-            return False
-        except Exception as e:
-            logger.error(f"加载模型失败: {e}", exc_info=True)
-            return False
-
-    @staticmethod
-    def _ensure_ascii_path(file_path: Path, lang: str) -> Path:
-        """On Windows, copy file to an ASCII-safe path if needed.
-
-        sherpa-onnx reads tokens.txt via std::ifstream with narrow char paths.
-        Under GBK code page, UTF-8 encoded non-ASCII directory names corrupt
-        the path (certain trailing bytes consume the backslash separator).
-        """
-        import sys
-
-        if sys.platform != "win32":
-            return file_path
-
-        if str(file_path).isascii():
-            return file_path
-
-        import shutil
-
-        safe_dir = get_user_keywords_path(lang).parent
-        safe_path = safe_dir / file_path.name
-        shutil.copy2(file_path, safe_path)
-        logger.debug(f"已复制 {file_path.name} 到 ASCII 安全路径: {safe_path}")
-        return safe_path
-
-    def _release_model(self):
-        if self._porcupine_engine is not None:
-            try:
-                self._porcupine_engine.shutdown()
-            except Exception as e:
-                logger.debug(f"释放 Porcupine 资源时出错: {e}")
-            self._porcupine_engine = None
-
-        if not self._model_loaded and not self._sherpa_active:
-            return
-        with self._onnx_lock:
-            try:
-                spotter = self._keyword_spotter
-                stream = self._stream
-                self._keyword_spotter = None
-                self._stream = None
-
-                # 必须先释放 spotter，再释放 stream。
-                # KeywordSpotter 在 C++ 层拥有 stream 的所有权，
-                # 反序释放会导致 spotter 析构时 double free stream。
-                if spotter is not None:
-                    del spotter
-
-                if stream is not None:
-                    del stream
-
-                self._model_loaded = False
-                self._sherpa_active = False
-                logger.debug("模型资源已释放")
-
-            except Exception as e:
-                logger.debug(f"释放模型资源时出错: {e}")
-
-    def on_detected(self, callback: Callable):
+    def on_detected(self, callback: Callable) -> None:
         self.on_detected_callback = callback
 
-    def on_audio_data(self, audio_data: np.ndarray):
+    def on_audio_data(self, audio_data: np.ndarray) -> None:
         if not self.enabled or not self._running or self._paused:
             return
-
         if self._audio_queue is None:
             return
 
         if not self._logged_first_audio_frame:
             self._logged_first_audio_frame = True
-            logger.debug("WAKE_WORD: first audio frame queued for KWS")
+            logger.debug("OpenWakeWord: first audio frame queued")
 
         try:
             self._audio_queue.put_nowait(audio_data.copy())
@@ -472,54 +220,33 @@ class WakeWordDetector:
                 self._audio_queue.put_nowait(audio_data.copy())
             except (queue.Empty, queue.Full):
                 pass
-        except Exception as e:
-            logger.debug(f"音频数据入队失败: {type(e).__name__}: {e}")
 
     async def start(self, audio_codec) -> bool:
-        if not self.enabled:
-            logger.warning("唤醒词功能未启用")
-            return False
-
-        if not self._porcupine_engine and not self._keyword_spotter:
-            logger.error("KWS 引擎未加载，请先调用 initialize()")
+        if not self.enabled or not self._oww_model:
+            logger.error("OpenWakeWord 未初始化")
             return False
 
         try:
             self.audio_codec = audio_codec
             self._running = True
             self._paused = False
-
-            # Thread-safe queue: mic callback runs on PortAudio thread, not asyncio.
             self._audio_queue = queue.Queue(maxsize=100)
-
-            # Create Sherpa stream only when secondary engine is active
-            if self._keyword_spotter:
-                with self._onnx_lock:
-                    self._stream = self._keyword_spotter.create_stream()
-
-            # Register as audio listener
             self.audio_codec.add_audio_listener(self)
-
-            # Start detection task
             self._detection_task = asyncio.create_task(self._detection_loop())
-
-            logger.info("唤醒词检测器已启动")
+            logger.info("OpenWakeWord 检测器已启动")
             return True
-
         except Exception as e:
             logger.error(f"启动检测器失败: {e}", exc_info=True)
             return False
 
-    async def stop(self):
+    async def stop(self) -> None:
         self._stopping = True
         self._running = False
 
-        # Remove audio listener
         if self.audio_codec:
             self.audio_codec.remove_audio_listener(self)
             self.audio_codec = None
 
-        # 用哨兵唤醒阻塞在 queue.get() 上的检测循环
         if self._audio_queue:
             try:
                 self._audio_queue.put_nowait(_STOP_SENTINEL)
@@ -530,7 +257,6 @@ class WakeWordDetector:
                 except (queue.Empty, queue.Full):
                     pass
 
-        # 等待检测循环自然退出（由哨兵触发）
         if self._detection_task:
             try:
                 await asyncio.wait_for(self._detection_task, timeout=1.0)
@@ -542,7 +268,6 @@ class WakeWordDetector:
                     pass
             self._detection_task = None
 
-        # Clear queue
         if self._audio_queue:
             while not self._audio_queue.empty():
                 try:
@@ -552,83 +277,50 @@ class WakeWordDetector:
             self._audio_queue = None
 
         self._stopping = False
-        logger.info("唤醒词检测器已停止")
+        logger.info("OpenWakeWord 检测器已停止")
 
     async def reload(self, model_path: Optional[str] = None) -> bool:
         was_running = self._running
         codec = self.audio_codec
-
-        logger.info(f"热重载唤醒词模型: {model_path}")
-
-        # Re-initialize with new model
         if not await self.initialize(model_path):
             return False
-
-        # Restart if was running
         if was_running and codec:
             return await self.start(codec)
-
         return True
 
-    async def shutdown(self):
-        """Fully shutdown and release all resources."""
+    async def shutdown(self) -> None:
         await self.stop()
         self._release_model()
         self.enabled = False
-        logger.info("唤醒词检测器已关闭")
 
-    def pause(self):
-        """Pause detection (keeps model loaded).
-
-        Called when transitioning out of ARMED state (LISTENING/SPEAKING).
-        This ensures the wake word spotter does not consume CPU while the
-        microphone audio is being sent to the server for STT.
-        """
+    def pause(self) -> None:
         if not self._paused:
             self._paused = True
-            logger.debug("唤醒词检测已暂停 (进入 LISTENING/SPEAKING)")
+            logger.debug("OpenWakeWord 检测已暂停")
 
-    def resume(self):
-        """Resume detection.
-
-        Called when returning to ARMED (IDLE) state, re-enabling
-        always-on local wake word detection.
-        """
+    def resume(self) -> None:
         if self._paused:
             self._paused = False
-            logger.debug("唤醒词检测已恢复 (返回 ARMED)")
+            logger.debug("OpenWakeWord 检测已恢复")
 
-    async def _detection_loop(self):
+    async def _detection_loop(self) -> None:
         error_count = 0
-        MAX_ERRORS = 5
-
         while self._running and not self._stopping:
             try:
-                if self._paused or self._stopping:
+                if self._paused:
                     await asyncio.sleep(0.1)
                     continue
-
                 await self._process_audio()
                 await asyncio.sleep(0.005)
                 error_count = 0
-
             except asyncio.CancelledError:
                 break
-            except RuntimeError as e:
-                if "no running event loop" in str(e) or "Event loop is closed" in str(e):
-                    break
-                error_count += 1
-                logger.error(f"检测循环错误 ({error_count}/{MAX_ERRORS}): {e}", exc_info=True)
-
-                if error_count >= MAX_ERRORS:
-                    logger.critical("达到最大错误次数，停止检测")
-                    break
-
-                await asyncio.sleep(1)
             except Exception as e:
                 error_count += 1
-                logger.error(f"检测循环错误 ({error_count}/{MAX_ERRORS}): {e}", exc_info=True)
-
+                logger.error(
+                    f"OpenWakeWord 检测循环错误 ({error_count}/5): {e}",
+                    exc_info=True,
+                )
                 if self.on_error:
                     try:
                         if asyncio.iscoroutinefunction(self.on_error):
@@ -637,15 +329,12 @@ class WakeWordDetector:
                             self.on_error(e)
                     except Exception as cb_error:
                         logger.error(f"错误回调失败: {cb_error}")
-
-                if error_count >= MAX_ERRORS:
-                    logger.critical("达到最大错误次数，停止检测")
+                if error_count >= 5:
                     break
-
                 await asyncio.sleep(1)
 
-    async def _process_audio(self):
-        if self._stopping or not self._audio_queue:
+    async def _process_audio(self) -> None:
+        if self._stopping or not self._audio_queue or not self._oww_model:
             return
 
         try:
@@ -655,78 +344,60 @@ class WakeWordDetector:
 
         if audio_data is _STOP_SENTINEL:
             return
-
         if audio_data is None or len(audio_data) == 0:
             return
 
         audio_data = np.ascontiguousarray(audio_data, dtype=np.float32).reshape(-1)
-
         rms = float(np.sqrt(np.mean(np.square(audio_data))))
         peak = float(np.max(np.abs(audio_data)))
         self._log_speech_activity(rms, peak)
 
-        self._rms_frame_counter += 1
-        if self._rms_frame_counter % self._rms_log_interval == 0:
-            logger.debug(
-                "KWS mic level: RMS=%.5f peak=%.5f frames=%d paused=%s running=%s",
-                rms,
-                peak,
-                self._rms_frame_counter,
-                self._paused,
-                self._running,
-            )
+        detected_label: Optional[str] = None
+        best_score = 0.0
+        best_key = ""
 
-        detected_result = None
-
-        # --- Primary: Picovoice Porcupine (robust KWS) ---
-        if self._porcupine_engine is not None:
+        with self._model_lock:
+            if self._oww_model is None:
+                return
             try:
-                porcupine_hit = self._porcupine_engine.process(audio_data)
-                if porcupine_hit:
-                    print(
-                        f"[PORCUPINE HIT] keyword={porcupine_hit!r} → activate_on_wake_word",
-                        flush=True,
-                    )
-                    detected_result = porcupine_hit
+                predictions = self._oww_model.predict(audio_data)
             except Exception as e:
-                logger.debug(f"Porcupine process error: {e}")
+                logger.debug(f"OpenWakeWord predict error: {e}")
+                return
 
-        # --- Secondary: Sherpa-ONNX + fuzzy fallback ---
-        if detected_result is None and self._keyword_spotter is not None:
-            with self._onnx_lock:
-                if self._stopping or self._stream is None:
-                    pass
-                else:
-                    try:
-                        self._stream.accept_waveform(
-                            sample_rate=self._sample_rate, waveform=audio_data
-                        )
+        if isinstance(predictions, dict):
+            for key, score in predictions.items():
+                score_f = float(score)
+                if score_f > best_score:
+                    best_score = score_f
+                    best_key = str(key)
+                if score_f >= self._threshold:
+                    detected_label = self._primary_wake_phrase
 
-                        if self._keyword_spotter.is_ready(self._stream):
-                            self._keyword_spotter.decode_stream(self._stream)
-                            result = self._keyword_spotter.get_result(self._stream)
-                            tokens = self._keyword_spotter.tokens(self._stream)
-                            timestamps = self._keyword_spotter.timestamps(self._stream)
-                            fuzzy_hit = _fuzzy_wake_match(result, tokens)
-                            self._log_wake_candidate(result, tokens, timestamps, fuzzy_hit)
+        if best_score > 0.01:
+            now = time.time()
+            if now - self._last_candidate_print >= 0.25:
+                print(
+                    f"[OWW CANDIDATE] model={best_key} score={best_score:.3f} "
+                    f"threshold={self._threshold:.3f}",
+                    flush=True,
+                )
+                self._last_candidate_print = now
 
-                            detected = result or self._try_fuzzy_wake_detection(
-                                result, tokens, timestamps
-                            )
-                            if detected:
-                                detected_result = detected
-                                self._keyword_spotter.reset_stream(self._stream)
-                    except Exception as e:
-                        logger.debug(f"处理音频时出错: {e}")
-
-        if detected_result is not None:
-            await self._handle_detection(detected_result)
+        if detected_label:
+            print(
+                f"[OWW HIT] '{detected_label}' score={best_score:.3f} "
+                f"→ activate_on_wake_word",
+                flush=True,
+            )
+            await self._handle_detection(detected_label)
 
     def _log_speech_activity(self, rms: float, peak: float) -> None:
-        """CLI notice when speech-level audio is fed into Sherpa-ONNX."""
-        is_speech = rms >= self._speech_rms_threshold or peak >= self._speech_rms_threshold * 3
+        is_speech = (
+            rms >= self._speech_rms_threshold
+            or peak >= self._speech_rms_threshold * 3
+        )
         now = time.time()
-
         if is_speech:
             if not self._speech_active or (
                 now - self._last_mic_active_print >= self._mic_active_print_interval
@@ -741,66 +412,7 @@ class WakeWordDetector:
         elif self._speech_active and rms < self._speech_rms_threshold * 0.5:
             self._speech_active = False
 
-    def _try_fuzzy_wake_detection(
-        self, result: str, tokens: list, timestamps: list
-    ) -> Optional[str]:
-        """Fallback when Sherpa emits high-probability tokens without keyword label."""
-        if not _fuzzy_wake_match(result, tokens):
-            return None
-
-        blob = _normalize_kws_text("".join(str(t).lstrip("▁") for t in tokens))
-        strong_single = any(
-            frag in blob
-            for frag in ("jesty", "jessie", "chest", "hijesty", "heyjesty", "heyjistry")
-        )
-        if len(tokens) < 2 and not strong_single:
-            return None
-
-        label = _resolve_fuzzy_wake_label(
-            result, tokens, primary=self._primary_wake_phrase
-        )
-        print(
-            f"[WAKE FUZZY MATCH] acoustic tokens={tokens} -> {label!r}",
-            flush=True,
-        )
-        logger.info(f"WAKE_WORD_FUZZY_MATCH: tokens={tokens} -> {label!r}")
-        return label
-
-    def _log_wake_candidate(
-        self, result: str, tokens: list, timestamps: list, fuzzy_hit: bool = False
-    ) -> None:
-        """Log every KWS decode evaluation, including sub-threshold candidates."""
-        passed = bool(result) or fuzzy_hit
-        if result:
-            match_score = 1.0
-        elif fuzzy_hit:
-            match_score = min(0.99, 0.5 + 0.1 * len(tokens))
-        elif tokens:
-            match_score = min(0.99, 0.1 + 0.15 * len(tokens))
-        else:
-            match_score = 0.0
-
-        print(
-            f"[WAKE CANDIDATE] keyword={result or '(none)'} "
-            f"match_score={match_score:.3f} "
-            f"threshold={self._keywords_threshold:.3f} "
-            f"score_boost={self._keywords_score:.2f} "
-            f"passed={passed} "
-            f"fuzzy={fuzzy_hit} "
-            f"tokens={tokens} "
-            f"timestamps={timestamps}",
-            flush=True,
-        )
-        logger.debug(
-            "KWS candidate: keyword=%r score=%.3f passed=%s tokens=%s",
-            result,
-            match_score,
-            passed,
-            tokens,
-        )
-
-    async def _handle_detection(self, result):
-        # Anti-repeat check
+    async def _handle_detection(self, result: str) -> None:
         current_time = time.time()
         if current_time - self._last_detection_time < self._detection_cooldown:
             return
@@ -808,25 +420,22 @@ class WakeWordDetector:
         self._last_detection_time = current_time
         logger.info(f"WAKE_WORD_DETECTED: {result!r}")
 
-        # 短暂暂停检测，让打断流程完成，避免旧音频触发重复检测
         self._paused = True
         handed_off = False
         try:
             if self.on_detected_callback:
-                try:
-                    if asyncio.iscoroutinefunction(self.on_detected_callback):
-                        await self.on_detected_callback(result, result)
-                    else:
-                        self.on_detected_callback(result, result)
-                    handed_off = True
-                except Exception as e:
-                    logger.error(f"唤醒词回调执行失败: {e}", exc_info=True)
+                if asyncio.iscoroutinefunction(self.on_detected_callback):
+                    await self.on_detected_callback(result, result)
+                else:
+                    self.on_detected_callback(result, result)
+                handed_off = True
+        except Exception as e:
+            logger.error(f"唤醒词回调执行失败: {e}", exc_info=True)
         finally:
             if self._stopping:
                 self._paused = False
                 return
             if handed_off:
-                # Stay paused until WakeWordPlugin resumes on IDLE.
                 self._drain_audio_queue()
                 return
             await asyncio.sleep(0.3)

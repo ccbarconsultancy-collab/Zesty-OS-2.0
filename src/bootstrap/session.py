@@ -286,7 +286,7 @@ class ConversationSession:
 
     async def activate_on_wake_word(self, phrase: str) -> bool:
         """Wake-word activation: force LISTENING + AUTO_STOP, bypassing PTT/UI guards."""
-        phrase = (phrase or "Hey Jesty").strip()
+        phrase = (phrase or "Zesty").strip()
         logger.info(
             f"activate_on_wake_word: bypass PTT, phrase={phrase!r}, mode=AUTO_STOP"
         )

@@ -3,7 +3,7 @@
 检测唤醒词并触发对话。
 
 Battery / Privacy Design:
-  - ARMED (idle): 仅本地 sherpa-onnx 关键词检测运行在麦克风输入上。
+  - ARMED (idle): 仅本地 OpenWakeWord 检测运行在麦克风输入上。
     音频帧被本地处理（KeywordSpotter），从不编码或发送到服务器。
     这是低功耗的 always-on 监听，等同于 Siri 的 "嘘" 监听。
   - LISTENING (post-wake): 音频被 Opus 编码并发送到服务器进行 STT/LLM/TTS。
@@ -96,7 +96,7 @@ class WakeWordPlugin(Plugin):
             self._resume_detection()
             wake_phrase = (
                 self._ctx.get_config().get_config("WAKE_WORD_OPTIONS.WAKE_WORD")
-                or "Hey Jesty"
+                or "Zesty"
             )
             banner = (
                 f"[AUDIO CHECK] Continuous Mic Stream: ACTIVE | "
@@ -144,7 +144,7 @@ class WakeWordPlugin(Plugin):
 
     async def _on_detected(self, wake_word, full_text):
         """Sherpa 命中 → 强制会话激活（绕过 PTT / UI 守卫）."""
-        phrase = (wake_word or full_text or "Hey Jesty").strip()
+        phrase = (wake_word or full_text or "Zesty").strip()
         logger.info(f"WAKE_WORD_HIT: {phrase!r} → activate_on_wake_word (bypass PTT)")
         self._pause_detection()
         try:

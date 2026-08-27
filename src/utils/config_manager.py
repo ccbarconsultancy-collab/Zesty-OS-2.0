@@ -59,11 +59,11 @@ class ConfigManager:
     """
 
     # 当前 schema 版本；加载时 migrate_config() 会升到此版本
-    CONFIG_VERSION = 2
+    CONFIG_VERSION = 3
 
     # 默认配置（完整产品 schema；加载时 deepcopy，禁止与实例共享嵌套对象）
     DEFAULT_CONFIG = {
-        "CONFIG_VERSION": 2,
+        "CONFIG_VERSION": 3,
         "SYSTEM_OPTIONS": {
             "CLIENT_ID": None,
             "DEVICE_ID": None,
@@ -80,29 +80,11 @@ class ConfigManager:
         },
         "WAKE_WORD_OPTIONS": {
             "USE_WAKE_WORD": True,
-            "MODEL_PATH": "models/en",
-            "NUM_THREADS": 4,
-            "PROVIDER": "cpu",
-            "MAX_ACTIVE_PATHS": 2,
-            "KEYWORDS_SCORE": 1.0,
-            "KEYWORDS_THRESHOLD": 0.05,
-            "NUM_TRAILING_BLANKS": 1,
-            "WAKE_WORD": "Hey Jesty",
-            "WAKE_WORD_LANG": "en",
-            "PHONETIC_ALIASES": [
-                "Hey Jesty",
-                "Hey Jistry",
-                "Jesty",
-                "jesty",
-                "hey jesty",
-                "hi jesty",
-                "jessie",
-                "chest",
-            ],
-            "KWS_ENGINE": "auto",
-            "PORCUPINE_KEYWORDS": ["jarvis", "computer"],
-            "PORCUPINE_SENSITIVITY": 0.65,
-            "PICOVOICE_ACCESS_KEY": "",
+            "WAKE_WORD": "Zesty",
+            "PHONETIC_ALIASES": ["Zesty", "Hey Zesty", "hey zesty", "hi zesty"],
+            "OPENWAKEWORD_MODEL_PATH": "models/openwakeword/zesty.onnx",
+            "OPENWAKEWORD_THRESHOLD": 0.45,
+            "OPENWAKEWORD_INFERENCE": "onnx",
         },
         "CAMERA": {
             "camera_index": 0,
@@ -364,7 +346,38 @@ class ConfigManager:
             ]
             ver = 2
 
-        # 将来：if ver < 3: ...; ver = 3
+        if ver < 3:
+            wwo = config.setdefault("WAKE_WORD_OPTIONS", {})
+            if not isinstance(wwo, dict):
+                wwo = {}
+                config["WAKE_WORD_OPTIONS"] = wwo
+            wwo["USE_WAKE_WORD"] = True
+            wwo["WAKE_WORD"] = "Zesty"
+            wwo["PHONETIC_ALIASES"] = [
+                "Zesty",
+                "Hey Zesty",
+                "hey zesty",
+                "hi zesty",
+            ]
+            wwo["OPENWAKEWORD_MODEL_PATH"] = "models/openwakeword/zesty.onnx"
+            wwo["OPENWAKEWORD_THRESHOLD"] = 0.45
+            wwo["OPENWAKEWORD_INFERENCE"] = "onnx"
+            for legacy_key in (
+                "MODEL_PATH",
+                "NUM_THREADS",
+                "PROVIDER",
+                "MAX_ACTIVE_PATHS",
+                "KEYWORDS_SCORE",
+                "KEYWORDS_THRESHOLD",
+                "NUM_TRAILING_BLANKS",
+                "WAKE_WORD_LANG",
+                "KWS_ENGINE",
+                "PORCUPINE_KEYWORDS",
+                "PORCUPINE_SENSITIVITY",
+                "PICOVOICE_ACCESS_KEY",
+            ):
+                wwo.pop(legacy_key, None)
+            ver = 3
 
         if ver != original or config.get("CONFIG_VERSION") != self.CONFIG_VERSION:
             config["CONFIG_VERSION"] = self.CONFIG_VERSION
@@ -435,27 +448,19 @@ class ConfigManager:
         return result
 
     def ensure_zesty_wake_word_profile(self) -> None:
-        """Zesty OS 2.0：强制启用手离 Hey Jesty 唤醒词配置."""
+        """Zesty OS 2.0：强制启用手离 Zesty OpenWakeWord 唤醒词配置."""
         desired = {
             "WAKE_WORD_OPTIONS.USE_WAKE_WORD": True,
-            "WAKE_WORD_OPTIONS.WAKE_WORD": "Hey Jesty",
-            "WAKE_WORD_OPTIONS.WAKE_WORD_LANG": "en",
-            "WAKE_WORD_OPTIONS.MODEL_PATH": "models/en",
-            "WAKE_WORD_OPTIONS.KEYWORDS_THRESHOLD": 0.05,
-            "WAKE_WORD_OPTIONS.KEYWORDS_SCORE": 1.0,
+            "WAKE_WORD_OPTIONS.WAKE_WORD": "Zesty",
             "WAKE_WORD_OPTIONS.PHONETIC_ALIASES": [
-                "Hey Jesty",
-                "Hey Jistry",
-                "Jesty",
-                "jesty",
-                "hey jesty",
-                "hi jesty",
-                "jessie",
-                "chest",
+                "Zesty",
+                "Hey Zesty",
+                "hey zesty",
+                "hi zesty",
             ],
-            "WAKE_WORD_OPTIONS.KWS_ENGINE": "auto",
-            "WAKE_WORD_OPTIONS.PORCUPINE_KEYWORDS": ["jarvis", "computer"],
-            "WAKE_WORD_OPTIONS.PORCUPINE_SENSITIVITY": 0.65,
+            "WAKE_WORD_OPTIONS.OPENWAKEWORD_MODEL_PATH": "models/openwakeword/zesty.onnx",
+            "WAKE_WORD_OPTIONS.OPENWAKEWORD_THRESHOLD": 0.45,
+            "WAKE_WORD_OPTIONS.OPENWAKEWORD_INFERENCE": "onnx",
         }
         changed = False
         for path, value in desired.items():
@@ -464,7 +469,7 @@ class ConfigManager:
                 changed = True
         if changed:
             self.save_config()
-            logger.info("已强制应用 Zesty Hey Jesty 唤醒词配置")
+            logger.info("已强制应用 Zesty OpenWakeWord 唤醒词配置")
 
     def get_config(self, path: str, default: Any = None) -> Any:
         """
