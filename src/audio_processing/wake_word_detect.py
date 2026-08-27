@@ -23,6 +23,14 @@ _STOP_SENTINEL = object()
 DEFAULT_WAKE_WORD = "Zesty"
 DEFAULT_PHONETIC_ALIASES = ("Zesty", "Hey Zesty", "hey zesty", "hi zesty")
 
+# Bundled OpenWakeWord models used when custom zesty.onnx is absent.
+BUNDLED_FALLBACK_MODELS = ("alexa", "hey_jarvis")
+FALLBACK_WAKE_LABELS = {
+    "alexa": "alexa",
+    "hey_jarvis": "hey jarvis",
+    "jarvis": "hey jarvis",
+}
+
 
 def _collect_wake_aliases(config: ConfigManager, primary: str) -> list[str]:
     aliases = config.get_config("WAKE_WORD_OPTIONS.PHONETIC_ALIASES") or []
@@ -102,6 +110,7 @@ class WakeWordDetector:
         self._last_mic_active_print = 0.0
         self._mic_active_print_interval = 2.0
         self._last_candidate_print = 0.0
+        self._fallback_mode = False
 
     async def initialize(self, model_path: Optional[str] = None) -> bool:
         try:
@@ -164,32 +173,63 @@ class WakeWordDetector:
         from openwakeword.utils import download_models
 
         model_path = resolve_openwakeword_model_path(config)
-        if model_path is None:
-            logger.error(
-                "Zesty OpenWakeWord model not found. Place zesty.onnx in "
-                "models/openwakeword/ or set WAKE_WORD_OPTIONS.OPENWAKEWORD_MODEL_PATH"
-            )
-            return False
-
-        # One-time download of shared feature/VAD models (offline after cache).
+        # Feature / VAD models (one-time network fetch, then offline).
         download_models(model_names=[])
 
-        logger.info("Loading OpenWakeWord model: %s", model_path)
         with self._model_lock:
-            self._oww_model = Model(
-                wakeword_models=[str(model_path)],
-                inference_framework=self._inference_framework,
-            )
+            if model_path is None:
+                print(
+                    "[OWW NOTICE] Custom zesty.onnx missing. Loading bundled OpenWakeWord "
+                    "models (alexa, hey_siri) as fallback.",
+                    flush=True,
+                )
+                logger.warning(
+                    "zesty.onnx not found — using bundled fallback models %s",
+                    BUNDLED_FALLBACK_MODELS,
+                )
+                configured = config.get_config("WAKE_WORD_OPTIONS.OPENWAKEWORD_FALLBACK_MODELS")
+                fallback_models = list(configured or BUNDLED_FALLBACK_MODELS)
+                download_models(model_names=fallback_models)
+                self._fallback_mode = True
+                self._oww_model = Model(
+                    wakeword_models=fallback_models,
+                    inference_framework=self._inference_framework,
+                )
+            else:
+                logger.info("Loading OpenWakeWord model: %s", model_path)
+                self._fallback_mode = False
+                self._oww_model = Model(
+                    wakeword_models=[str(model_path)],
+                    inference_framework=self._inference_framework,
+                )
             self._oww_model_keys = list(self._oww_model.models.keys())
         return bool(self._oww_model_keys)
 
+    def _label_for_detection(self, model_key: str) -> str:
+        """Map OWW model key to phrase sent to activate_on_wake_word()."""
+        key = (model_key or "").strip().lower()
+        if self._fallback_mode:
+            return FALLBACK_WAKE_LABELS.get(key, key.replace("_", " "))
+        return self._primary_wake_phrase
+
     def _print_startup_banner(self) -> None:
-        banner = (
-            "[CLEAN KWS READY] Legacy Engines Purged | "
-            "Active Engine: OpenWakeWord | "
-            f"Target Wake-Word: '{self._primary_wake_phrase.upper()}' | "
-            "Status: UNLOCKED"
-        )
+        if self._fallback_mode:
+            targets = ", ".join(
+                FALLBACK_WAKE_LABELS.get(k, k) for k in self._oww_model_keys
+            )
+            banner = (
+                "[CLEAN KWS READY] Legacy Engines Purged | "
+                "Active Engine: OpenWakeWord (bundled fallback) | "
+                f"Target Wake-Words: {targets} | "
+                "Status: UNLOCKED"
+            )
+        else:
+            banner = (
+                "[CLEAN KWS READY] Legacy Engines Purged | "
+                "Active Engine: OpenWakeWord | "
+                f"Target Wake-Word: '{self._primary_wake_phrase.upper()}' | "
+                "Status: UNLOCKED"
+            )
         print(banner, flush=True)
         logger.info(banner)
 
@@ -371,8 +411,8 @@ class WakeWordDetector:
                 if score_f > best_score:
                     best_score = score_f
                     best_key = str(key)
-                if score_f >= self._threshold:
-                    detected_label = self._primary_wake_phrase
+                if score_f >= self._threshold and detected_label is None:
+                    detected_label = self._label_for_detection(str(key))
 
         if best_score > 0.01:
             now = time.time()

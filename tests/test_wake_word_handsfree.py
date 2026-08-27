@@ -104,6 +104,57 @@ async def test_wake_word_device_state_listening_pauses_detection():
 
 
 @pytest.mark.asyncio
+async def test_openwakeword_fallback_when_zesty_missing(monkeypatch, capsys):
+    from src.audio_processing import wake_word_detect
+    from src.utils.config_manager import ConfigManager, reset_config
+
+    reset_config()
+    cm = ConfigManager()
+    cm.update_config("WAKE_WORD_OPTIONS.OPENWAKEWORD_MODEL_PATH", "models/openwakeword/zesty.onnx", save=False)
+
+    mock_model = MagicMock()
+    mock_model.models = {"alexa": object(), "hey_jarvis": object()}
+
+    monkeypatch.setattr(wake_word_detect, "get_config", lambda: cm)
+    monkeypatch.setattr(wake_word_detect, "resolve_openwakeword_model_path", lambda _cfg: None)
+
+    with patch("openwakeword.utils.download_models"), patch(
+        "openwakeword.model.Model", return_value=mock_model
+    ) as model_ctor:
+        detector = wake_word_detect.WakeWordDetector()
+        ok = await detector.initialize()
+
+    assert ok is True
+    assert detector._fallback_mode is True
+    model_ctor.assert_called_once()
+    assert model_ctor.call_args.kwargs["wakeword_models"] == ["alexa", "hey_jarvis"]
+    assert "[OWW NOTICE]" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_openwakeword_fallback_triggers_with_bundled_label():
+    from src.audio_processing.wake_word_detect import WakeWordDetector
+
+    detector = WakeWordDetector()
+    detector.enabled = True
+    detector._running = True
+    detector._paused = False
+    detector._threshold = 0.4
+    detector._fallback_mode = True
+    detector._audio_queue = __import__("queue").Queue(maxsize=10)
+    detector._oww_model = MagicMock()
+    detector._oww_model.predict.return_value = {"alexa": 0.9}
+    detector._oww_model_keys = ["alexa"]
+    detector._handle_detection = AsyncMock()
+
+    frame = np.zeros(AudioConfig.INPUT_FRAME_SIZE, dtype=np.float32)
+    detector.on_audio_data(frame)
+    await detector._process_audio()
+
+    detector._handle_detection.assert_awaited_once_with("alexa")
+
+
+@pytest.mark.asyncio
 async def test_openwakeword_initialize_loads_model(tmp_path, monkeypatch):
     from src.audio_processing import wake_word_detect
     from src.utils.config_manager import ConfigManager, reset_config
